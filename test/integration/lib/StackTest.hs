@@ -273,7 +273,7 @@ isMacOSX = os == "darwin"
 -- the main @stack.yaml@.
 --
 defaultResolverArg :: String
-defaultResolverArg = "--resolver=nightly-2022-06-06"
+defaultResolverArg = "--resolver=nightly-2022-06-10"
 
 -- | Remove a file and ignore any warnings about missing files.
 removeFileIgnore :: HasCallStack => FilePath -> IO ()
