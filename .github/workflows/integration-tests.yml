@@ -21,12 +21,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - os: ubuntu-latest
-          release-args: "--alpine"
-          cache-bust: ""
-        - os: windows-latest
-          release-args: ""
-          cache-bust: ""
+        # - os: ubuntu-latest
+        #   release-args: "--alpine"
+        #   cache-bust: ""
+        # - os: windows-latest
+        #   release-args: ""
+        #   cache-bust: ""
         - os: macos-latest
           release-args: ""
           cache-bust: "1"
@@ -74,10 +74,10 @@ jobs:
               extra-lib-dirs:
               - /lib
               - /usr/lib
-              - /nix/store/425yi10fqvdhzqpdhgvlf7ykh9422msq-ncurses-6.3/lib
           EOF
           fi
 
+          export RIO_VERBOSE=1
           # Do this in the same step as installing deps to get relevant env var modifications
           stack etc/scripts/release.hs check ${{ matrix.release-args }}
 
