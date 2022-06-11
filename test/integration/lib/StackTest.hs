@@ -119,7 +119,12 @@ runRepl cmd args actions = do
     hSetBuffering rStdout NoBuffering
     hSetBuffering rStderr NoBuffering
 
-    _ <- forkIO $ withFile "/tmp/stderr" WriteMode
+    tempDir <- if isWindows
+                    then fromMaybe "" <$> lookupEnv "TEMP"
+                    else return "/tmp"
+    let tempFP = tempDir ++ "/stderr"
+
+    _ <- forkIO $ withFile tempFP WriteMode
         $ \err -> do
             hSetBuffering err NoBuffering
             forever $ catch (hGetChar rStderr >>= hPutChar err)
