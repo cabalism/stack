@@ -115,7 +115,7 @@ runApp options inner = do
   proc stack ["--version"] runProcess_
   logInfo $ "Using runghc located at " <> fromString runghc
   proc runghc ["--version"] runProcess_
-  logInfo $ "Doing workaround for MacOS"
+  logInfo "Doing workaround for MacOS"
   proc stack ["config", "set", "system-ghc", "--global", "true"] runProcess_
 
   let matchTest = case optMatch options of
