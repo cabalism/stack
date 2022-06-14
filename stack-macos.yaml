@@ -1,5 +1,4 @@
-# GHC 9.2.2
-resolver: nightly-2022-04-09
+resolver: nightly-2022-06-10 # GHC 9.2.3
 
 packages:
 - .
@@ -13,7 +12,6 @@ nix:
   packages:
     - zlib
     - unzip
-
 flags:
   stack:
     developer-mode: true
@@ -21,7 +19,11 @@ flags:
 ghc-options:
    "$locals": -fhide-source-paths
 
-extra-deps: []
+# Contains macos specific fix for https://github.com/haskell/process/issues/247
+extra-deps:
+- git: https://github.com/haskell/process.git
+  commit: b95e5fbdeb74e0cc36b6878b60f9807bd0001fa8
+- Cabal-3.6.3.0@sha256:ff97c442b0c679c1c9876acd15f73ac4f602b973c45bde42b43ec28265ee48f4,12459
 
 drop-packages:
 # See https://github.com/commercialhaskell/stack/pull/4712
