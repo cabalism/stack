@@ -415,7 +415,7 @@ generateBuildInfoOpts BioInput {..} =
                 | null (hsSourceDirs biBuildInfo)
                 ]
 #if MIN_VERSION_Cabal(3,6,0)
-              , mapMaybe toIncludeDir (map getSymbolicPath (hsSourceDirs biBuildInfo))
+              , mapMaybe (toIncludeDir . getSymbolicPath) (hsSourceDirs biBuildInfo)
 #else
               , mapMaybe toIncludeDir (hsSourceDirs biBuildInfo)
 #endif
@@ -816,7 +816,7 @@ resolveComponentFiles
     -> RIO Ctx (Map ModuleName (Path Abs File), [DotCabalPath], [PackageWarning])
 resolveComponentFiles component build names = do
 #if MIN_VERSION_Cabal(3,6,0)
-    dirs <- mapMaybeM resolveDirOrWarn (map getSymbolicPath (hsSourceDirs build))
+    dirs <- mapMaybeM (resolveDirOrWarn . getSymbolicPath) (hsSourceDirs build)
 #else
     dirs <- mapMaybeM resolveDirOrWarn (hsSourceDirs build)
 #endif
