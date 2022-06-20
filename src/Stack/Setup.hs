@@ -476,7 +476,7 @@ warnUnsupportedCompiler ghcVersion = do
         pure True
     | ghcVersion >= mkVersion [9, 3] -> do
         logWarn $
-          "Stack has not been tested with GHC versions above 9.3, and using " <>
+          "Stack has not been tested with GHC versions above 9.2, and using " <>
           fromString (versionString ghcVersion) <>
           ", this may fail"
         pure True
