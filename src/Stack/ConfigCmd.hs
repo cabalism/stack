@@ -1,11 +1,13 @@
-{-# LANGUAGE NoImplicitPrelude   #-}
-{-# LANGUAGE ConstraintKinds     #-}
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ParallelListComp    #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NoImplicitPrelude          #-}
+{-# LANGUAGE ConstraintKinds            #-}
+{-# LANGUAGE CPP                        #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ParallelListComp           #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 
 -- | Make changes to project or global configuration.
 module Stack.ConfigCmd
@@ -19,6 +21,7 @@ module Stack.ConfigCmd
        ,cfgCmdName) where
 
 import           Stack.Prelude
+import           Data.Coerce (coerce)
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -80,8 +83,7 @@ cfgCmdSet cmd = do
                          PCNoProject _extraDeps -> throwString "config command used when no project configuration available" -- maybe modify the ~/.stack/config.yaml file instead?
                  CommandScopeGlobal -> return (configUserConfigPath conf)
     -- We don't need to worry about checking for a valid yaml here
-    rawConfig <-
-        liftIO (readFileUtf8 (toFilePath configFilePath))
+    rawConfig <- RawConfig <$> liftIO (readFileUtf8 (toFilePath configFilePath))
     (config :: Yaml.Object) <-
         liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>= either throwM return
     newValue <- cfgCmdSetValue (parent configFilePath) cmd
@@ -98,16 +100,28 @@ cfgCmdSet cmd = do
                  (fromString (toFilePath configFilePath) <>
                   " already contained the intended configuration and remains unchanged.")
         else do
-            prettyYaml <- encodeInOrder rawConfig keysFound config'
-            writeBinaryFileAtomic configFilePath $ byteString prettyYaml
+            logInfo $ display rawConfig
+            let rawConfigLines = RawConfigLine <$> RioT.lines (coerce rawConfig)
+            prettyYaml :: ByteString <- encodeInOrder rawConfigLines (YamlKey <$> keysFound) config'
+            keeper :: ByteString -> ByteString <- keepBlanks rawConfigLines
+            let prettierYaml = keeper prettyYaml
+            writeBinaryFileAtomic configFilePath $ byteString prettierYaml
             logInfo (fromString (toFilePath configFilePath) <> " has been updated.")
 
-encodeInOrder :: HasLogFunc env => Text -> [Text] -> Yaml.Object -> RIO env ByteString
-encodeInOrder rawConfig keysFound config' = do
+newtype RawConfig = RawConfig Text deriving newtype Display
+newtype RawConfigLine = RawConfigLine Text
+newtype YamlKey = YamlKey Text deriving newtype Display
+
+keepBlanks :: HasLogFunc env => [RawConfigLine] -> RIO env (ByteString -> ByteString)
+keepBlanks rawConfigLines = do
+    mapM_ (logInfo . display) (findBlanks rawConfigLines)
+    return id
+
+encodeInOrder :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> Yaml.Object -> RIO env ByteString
+encodeInOrder rawConfigLines keysFound config' = do
     mapM_ (logInfo . display) keysFound
-    logInfo $ display rawConfig
-    let findLine = findIdx $ RioT.lines rawConfig
-    let ixs = (\x -> (x, findLine x)) <$> keysFound
+    let findLine = findIdx rawConfigLines
+    let ixs = (\yk@(YamlKey x) -> (x, findLine yk)) <$> keysFound
     let mapIxs :: Map Text (Maybe Int)
         mapIxs = Map.fromList ixs
     let firstLineCompare :: Text -> Text -> Ordering
@@ -115,10 +129,17 @@ encodeInOrder rawConfig keysFound config' = do
     let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
     return $ Yaml.encodePretty keyCmp config'
 
-findIdx :: [Text] -> Text -> Maybe Int
-findIdx ys x = join . listToMaybe . take 1 . dropWhile isNothing $
+findIdx :: [RawConfigLine] -> YamlKey -> Maybe Int
+findIdx rawConfigLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
     [ if x `RioT.isPrefixOf` y then Just i else Nothing
-    | y <- ys
+    | RawConfigLine y <- rawConfigLines
+    | i <- [1 ..]
+    ]
+
+findBlanks :: [RawConfigLine] -> [Int]
+findBlanks rawConfigLines = catMaybes $
+    [ if y == "" then Just i else Nothing
+    | RawConfigLine y <- rawConfigLines
     | i <- [1 ..]
     ]
 
