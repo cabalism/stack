@@ -31,6 +31,7 @@ import qualified Data.Map.Merge.Strict as Map
 #if !MIN_VERSION_aeson(2,0,0)
 import qualified Data.HashMap.Strict as HMap
 #endif
+import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Yaml as Yaml
 import qualified Data.Yaml.Pretty as Yaml
@@ -102,22 +103,37 @@ cfgCmdSet cmd = do
         else do
             logInfo $ display rawConfig
             let rawConfigLines = RawConfigLine <$> RioT.lines (coerce rawConfig)
-            prettyYaml :: ByteString <- encodeInOrder rawConfigLines (YamlKey <$> keysFound) config'
-            keeper :: ByteString -> ByteString <- keepBlanks rawConfigLines
-            let prettierYaml = keeper prettyYaml
-            writeBinaryFileAtomic configFilePath $ byteString prettierYaml
-            logInfo (fromString (toFilePath configFilePath) <> " has been updated.")
+            inOrder <- encodeInOrder rawConfigLines (YamlKey <$> keysFound) config'
+            let file = fromString $ toFilePath configFilePath
+            case inOrder of
+                Left ex -> throwM ex
+                Right x -> do
+                    keeper :: Text -> Text <- keepBlanks rawConfigLines (YamlKey cmdKey)
+                    let withBlanks = encodeUtf8 $ keeper x
+                    writeBinaryFileAtomic configFilePath $ byteString withBlanks
+                    logInfo (file <> " has been updated.")
 
 newtype RawConfig = RawConfig Text deriving newtype Display
 newtype RawConfigLine = RawConfigLine Text
 newtype YamlKey = YamlKey Text deriving newtype Display
 
-keepBlanks :: HasLogFunc env => [RawConfigLine] -> RIO env (ByteString -> ByteString)
-keepBlanks rawConfigLines = do
-    mapM_ (logInfo . display) (findBlanks rawConfigLines)
-    return id
+keepBlanks :: HasLogFunc env => [RawConfigLine] -> YamlKey -> RIO env (Text -> Text)
+keepBlanks rawConfigLines (YamlKey addedKey) = do
+    let blanks = findBlanks rawConfigLines
+    mapM_ (logInfo . display) blanks
+    return $ \ t ->
+        let (ks, others) = L.partition (addedKey `RioT.isPrefixOf`) (RioT.lines t)
+            xs = zip [1 ..] others
+            ys =
+                [ RioT.unlines $ x : (T.pack (show i ++ " " ++ show j) <$ filter (\n -> i < n && n <= j) blanks)
+                | (i, x) <- xs
+                | (j, _) <- drop 1 xs ++ [(0, "")]
+                ]
 
-encodeInOrder :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> Yaml.Object -> RIO env ByteString
+        -- Append the added key line, assumed to be one line.
+        in RioT.concat $ ys ++ take 1 ks
+        
+encodeInOrder :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> Yaml.Object -> RIO env (Either UnicodeException Text)
 encodeInOrder rawConfigLines keysFound config' = do
     mapM_ (logInfo . display) keysFound
     let findLine = findIdx rawConfigLines
@@ -127,7 +143,7 @@ encodeInOrder rawConfigLines keysFound config' = do
     let firstLineCompare :: Text -> Text -> Ordering
         firstLineCompare x y = Map.lookup x mapIxs `compare` Map.lookup y mapIxs
     let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
-    return $ Yaml.encodePretty keyCmp config'
+    return . decodeUtf8' $ Yaml.encodePretty keyCmp config'
 
 findIdx :: [RawConfigLine] -> YamlKey -> Maybe Int
 findIdx rawConfigLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
