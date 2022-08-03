@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ParallelListComp    #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Make changes to project or global configuration.
@@ -29,12 +30,14 @@ import qualified Data.HashMap.Strict as HMap
 #endif
 import qualified Data.Text as T
 import qualified Data.Yaml as Yaml
+import qualified Data.Yaml.Pretty as Yaml
 import qualified Options.Applicative as OA
 import qualified Options.Applicative.Types as OA
 import           Options.Applicative.Builder.Extra
 import           Pantry (loadSnapshot)
 import           Path
 import qualified RIO.Map as Map
+import qualified RIO.Text as RioT
 import           RIO.Process (envVarsL)
 import           Stack.Config (makeConcreteResolver, getProjectConfig, getImplicitGlobalProjectDir)
 import           Stack.Constants
@@ -77,22 +80,43 @@ cfgCmdSet cmd = do
                          PCNoProject _extraDeps -> throwString "config command used when no project configuration available" -- maybe modify the ~/.stack/config.yaml file instead?
                  CommandScopeGlobal -> return (configUserConfigPath conf)
     -- We don't need to worry about checking for a valid yaml here
+    rawConfig <-
+        liftIO (readFileUtf8 (toFilePath configFilePath))
     (config :: Yaml.Object) <-
         liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>= either throwM return
     newValue <- cfgCmdSetValue (parent configFilePath) cmd
     let cmdKey = cfgCmdSetOptionName cmd
 #if MIN_VERSION_aeson(2,0,0)
         config' = KeyMap.insert (Key.fromText cmdKey) newValue config
+        keysFound = Key.toText <$> KeyMap.keys config
 #else
         config' = HMap.insert cmdKey newValue config
+        keysFound = HMap.keys config
 #endif
     if config' == config
         then logInfo
                  (fromString (toFilePath configFilePath) <>
                   " already contained the intended configuration and remains unchanged.")
         else do
-            writeBinaryFileAtomic configFilePath (byteString (Yaml.encode config'))
+            sequence_ $ logInfo . display <$> keysFound
+            logInfo $ display rawConfig
+            let findLine = findIdx $ RioT.lines rawConfig
+            let ixs = (\x -> (x, findLine x)) <$> keysFound
+            let mapIxs :: Map Text (Maybe Int)
+                mapIxs = Map.fromList ixs
+            let firstLineCompare :: Text -> Text -> Ordering
+                firstLineCompare x y = (Map.lookup x mapIxs) `compare` (Map.lookup y mapIxs)
+            let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
+            writeBinaryFileAtomic configFilePath (byteString (Yaml.encodePretty keyCmp config'))
             logInfo (fromString (toFilePath configFilePath) <> " has been updated.")
+
+findIdx :: [Text] -> Text -> Maybe Int
+findIdx ys x =
+    join . listToMaybe . (take 1) . (dropWhile isNothing) $
+    [ if x `RioT.isPrefixOf` y then Just i else Nothing
+    | y <- ys
+    | i <- [1 ..]
+    ]
 
 cfgCmdSetValue
     :: (HasConfig env, HasGHCVariant env)
