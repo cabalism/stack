@@ -98,21 +98,25 @@ cfgCmdSet cmd = do
                  (fromString (toFilePath configFilePath) <>
                   " already contained the intended configuration and remains unchanged.")
         else do
-            sequence_ $ logInfo . display <$> keysFound
-            logInfo $ display rawConfig
-            let findLine = findIdx $ RioT.lines rawConfig
-            let ixs = (\x -> (x, findLine x)) <$> keysFound
-            let mapIxs :: Map Text (Maybe Int)
-                mapIxs = Map.fromList ixs
-            let firstLineCompare :: Text -> Text -> Ordering
-                firstLineCompare x y = (Map.lookup x mapIxs) `compare` (Map.lookup y mapIxs)
-            let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
-            writeBinaryFileAtomic configFilePath (byteString (Yaml.encodePretty keyCmp config'))
+            prettyYaml <- encodeInOrder rawConfig keysFound config'
+            writeBinaryFileAtomic configFilePath $ byteString prettyYaml
             logInfo (fromString (toFilePath configFilePath) <> " has been updated.")
 
+encodeInOrder :: HasLogFunc env => Text -> [Text] -> Yaml.Object -> RIO env ByteString
+encodeInOrder rawConfig keysFound config' = do
+    mapM_ (logInfo . display) keysFound
+    logInfo $ display rawConfig
+    let findLine = findIdx $ RioT.lines rawConfig
+    let ixs = (\x -> (x, findLine x)) <$> keysFound
+    let mapIxs :: Map Text (Maybe Int)
+        mapIxs = Map.fromList ixs
+    let firstLineCompare :: Text -> Text -> Ordering
+        firstLineCompare x y = Map.lookup x mapIxs `compare` Map.lookup y mapIxs
+    let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
+    return $ Yaml.encodePretty keyCmp config'
+
 findIdx :: [Text] -> Text -> Maybe Int
-findIdx ys x =
-    join . listToMaybe . (take 1) . (dropWhile isNothing) $
+findIdx ys x = join . listToMaybe . take 1 . dropWhile isNothing $
     [ if x `RioT.isPrefixOf` y then Just i else Nothing
     | y <- ys
     | i <- [1 ..]
