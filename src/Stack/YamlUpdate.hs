@@ -53,7 +53,7 @@ keepBlanks rawConfigLines (YamlKey addedKey) = do
                         let x' = maybe
                                     x
                                     (\(YamlLineComment (_, c)) -> x <> " " <> comment c)
-                                    (listToMaybe $ filter ((== i') . commentLineNumber) ps)
+                                    (L.find ((== i') . commentLineNumber) ps)
 
                         return (x' : ((\(YamlLineComment (_, c)) -> c) <$> blankLinesAsComments))
 
