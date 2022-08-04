@@ -4,6 +4,7 @@
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE ParallelListComp           #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ViewPatterns               #-}
 
 -- | Update YAML preserving top-level key order, blank lines and comments.
 module Stack.YamlUpdate
@@ -45,23 +46,18 @@ data YamlLines =
         }
 
 -- | Takes an original set of lines, top-level keys and the update key and then
--- produces a function that puts back the blank lines and comments into the
--- update.
+-- puts back the blank lines and comments into the update.
 redress
-    :: HasLogFunc env
-    => [RawYamlLine]
+    :: [RawYamlLine]
     -> [YamlKey]
     -> YamlKey
-    -> RIO env (RawYaml -> Text)
-redress rawLines keys key@(YamlKey addedKey) = do
-    let YamlLines{blanks, wholeLineComments, partLineComments, reindices} = pegLines rawLines
-    logDebug "YAML UPDATE: BLANK LINE NUMBERS"
-    mapM_ (logDebug . display) blanks
-    logDebug "YAML UPDATE: WHOLE LINE COMMENTS"
-    mapM_ (logDebug . display) wholeLineComments
-    logDebug "YAML UPDATE: PART LINE COMMENTS"
-    mapM_ (logDebug . display) partLineComments
-    return $ \(RawYaml t) ->
+    -> RawYaml
+    -> Text
+redress
+    (pegLines -> YamlLines{blanks, wholeLineComments, partLineComments, reindices})
+    keys
+    key@(YamlKey addedKey)
+    (RawYaml t) =
         let (ks, others) =
                 -- If the key isn't there already partition it for later append.
                 L.partition
@@ -100,22 +96,18 @@ redress rawLines keys key@(YamlKey addedKey) = do
         
 -- | Uses the order of the keys in the original to preserve the order in the update.
 encodeInOrder
-    :: HasLogFunc env
-    => [RawYamlLine]
+    :: [RawYamlLine]
     -> [YamlKey]
     -> Yaml.Object
-    -> RIO env (Either UnicodeException RawYaml)
-encodeInOrder rawLines keysFound yObject = do
-    logDebug "YAML UPDATE: TOP-LEVEL KEYS"
-    mapM_ (logDebug . display) keysFound
+    -> Either UnicodeException RawYaml
+encodeInOrder rawLines keysFound yObject =
     let keyLine = findKeyLine rawLines
-    let ixs = (\yk@(YamlKey x) -> (x, keyLine yk)) <$> keysFound
-    let mapIxs :: Map Text (Maybe Int)
+        ixs = (\yk@(YamlKey x) -> (x, keyLine yk)) <$> keysFound
         mapIxs = Map.fromList ixs
-    let firstLineCompare :: Text -> Text -> Ordering
         firstLineCompare x y = Map.lookup x mapIxs `compare` Map.lookup y mapIxs
-    let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
-    return $ RawYaml <$> decodeUtf8' (Yaml.encodePretty keyCmp yObject)
+        keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
+    
+    in RawYaml <$> decodeUtf8' (Yaml.encodePretty keyCmp yObject)
 
 findKeyLine :: [RawYamlLine] -> YamlKey -> Maybe Int
 findKeyLine rawLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
