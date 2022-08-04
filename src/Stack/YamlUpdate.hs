@@ -24,10 +24,10 @@ import qualified RIO.Map as Map
 
 newtype RawConfig = RawConfig Text deriving newtype Display
 newtype RawConfigLine = RawConfigLine Text
-newtype YamlKey = YamlKey Text deriving newtype Display
+newtype YamlKey = YamlKey Text deriving newtype (Eq, Display)
 
-keepBlanks :: HasLogFunc env => [RawConfigLine] -> YamlKey -> RIO env (Text -> Text)
-keepBlanks rawConfigLines (YamlKey addedKey) = do
+keepBlanks :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> YamlKey -> RIO env (Text -> Text)
+keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
     let (blanks, (wholeLineComments, partLineComments), reindices) = findBlanks rawConfigLines
     logInfo "BLANK LINE NUMBERS"
     mapM_ (logInfo . display) blanks
@@ -36,7 +36,14 @@ keepBlanks rawConfigLines (YamlKey addedKey) = do
     logInfo "PART LINE COMMENTS"
     mapM_ (logInfo . display) partLineComments
     return $ \ t ->
-        let (ks, others) = L.partition (addedKey `RioT.isPrefixOf`) (RioT.lines t)
+        let (ks, others) =
+                -- If the key isn't there already partition it for later append.
+                L.partition
+                    (if key `L.elem` keys
+                        then const False
+                        else (addedKey `RioT.isPrefixOf`))
+                    (RioT.lines t)
+
             xs = zip [1 ..] others
 
             ys =
@@ -67,6 +74,7 @@ keepBlanks rawConfigLines (YamlKey addedKey) = do
         
 encodeInOrder :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> Yaml.Object -> RIO env (Either UnicodeException Text)
 encodeInOrder rawConfigLines keysFound config' = do
+    logInfo "TOP-LEVEL KEYS"
     mapM_ (logInfo . display) keysFound
     let findLine = findIdx rawConfigLines
     let ixs = (\yk@(YamlKey x) -> (x, findLine yk)) <$> keysFound

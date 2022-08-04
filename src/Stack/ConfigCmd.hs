@@ -97,16 +97,23 @@ cfgCmdSet cmd = do
                  (fromString (toFilePath configFilePath) <>
                   " already contained the intended configuration and remains unchanged.")
         else do
+            let yamlKey = YamlKey cmdKey
+            let yamlKeys = YamlKey <$> keysFound
+
+            logInfo "RAW CONFIG"
             logInfo $ display rawConfig
+
             let rawConfigLines = RawConfigLine <$> RioT.lines (coerce rawConfig)
-            inOrder <- encodeInOrder rawConfigLines (YamlKey <$> keysFound) config'
-            let file = fromString $ toFilePath configFilePath
+            inOrder <- encodeInOrder rawConfigLines yamlKeys config'
+
             case inOrder of
                 Left ex -> throwM ex
                 Right x -> do
-                    keeper :: Text -> Text <- keepBlanks rawConfigLines (YamlKey cmdKey)
+                    keeper <- keepBlanks rawConfigLines yamlKeys yamlKey
                     let withBlanks = encodeUtf8 $ keeper x
                     writeBinaryFileAtomic configFilePath $ byteString withBlanks
+
+                    let file = fromString $ toFilePath configFilePath
                     logInfo (file <> " has been updated.")
 
 cfgCmdSetValue
