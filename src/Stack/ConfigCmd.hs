@@ -79,9 +79,8 @@ cfgCmdSet cmd = do
                          PCNoProject _extraDeps -> throwString "config command used when no project configuration available" -- maybe modify the ~/.stack/config.yaml file instead?
                  CommandScopeGlobal -> return (configUserConfigPath conf)
     -- We don't need to worry about checking for a valid yaml here
-    rawConfig <- RawYaml <$> liftIO (readFileUtf8 (toFilePath configFilePath))
-    (config :: Yaml.Object) <-
-        liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>= either throwM return
+    rawConfig <- addSentinels . RawYaml <$> liftIO (readFileUtf8 (toFilePath configFilePath))
+    (config :: Yaml.Object) <- either throwM return (Yaml.decodeEither' . encodeUtf8 $ coerce rawConfig)
     newValue <- cfgCmdSetValue (parent configFilePath) cmd
     let cmdKey = cfgCmdSetOptionName cmd
 #if MIN_VERSION_aeson(2,0,0)
@@ -102,7 +101,7 @@ cfgCmdSet cmd = do
             case encodeInOrder configLines yamlKeys yamlKey config' of
                 Left ex -> throwM ex
                 Right updated -> do
-                    let redressed = redress configLines updated
+                    let redressed = coerce . removeSentinels $ redress configLines updated
                     writeBinaryFileAtomic configFilePath . byteString $ encodeUtf8 redressed
 
                     let file = fromString $ toFilePath configFilePath

@@ -10,6 +10,8 @@
 module Stack.YamlUpdate
     ( encodeInOrder
     , redress
+    , addSentinels
+    , removeSentinels
     , RawYaml(..)
     , RawYamlLine(..)
     , YamlKey(..)
@@ -46,25 +48,24 @@ data YamlLines =
         }
 
 -- | Puts blank lines and comments from the original lines into the update.
-redress :: [RawYamlLine] -> RawYaml -> Text
-redress rawLines (RawYaml t) = let xs = zip [1 ..] (T.lines t) in
-    T.concat
-        [
-            T.unlines . fromMaybe [x] $ do
-                (i', leading, partComments, trailing) <- fetchPegged rawLines (i, j)
+redress :: [RawYamlLine] -> RawYaml -> RawYaml
+redress rawLines (RawYaml t) = let xs = zip [1 ..] (T.lines t) in RawYaml . T.concat $
+    [
+        T.unlines . fromMaybe [x] $ do
+            (i', leading, partComments, trailing) <- fetchPegged rawLines (i, j)
 
-                let x' = maybe
-                            x
-                            (\(YamlLineComment (_, c)) -> x <> " " <> dropToComment c)
-                            (L.find ((== i') . commentLineNumber) partComments)
+            let x' = maybe
+                        x
+                        (\(YamlLineComment (_, c)) -> x <> " " <> dropToComment c)
+                        (L.find ((== i') . commentLineNumber) partComments)
 
-                let cs = x' : (comment <$> trailing)
+            let cs = x' : (comment <$> trailing)
 
-                return $ if i /= 1 then cs else (comment <$> leading) ++ cs
+            return $ if i /= 1 then cs else (comment <$> leading) ++ cs
 
-        | (i, x) <- xs
-        | (j, _) <- drop 1 xs ++ [(0, "")]
-        ]
+    | (i, x) <- xs
+    | (j, _) <- drop 1 xs ++ [(0, "")]
+    ]
 
 fetchPegged
     :: [RawYamlLine]
@@ -113,6 +114,17 @@ encodeInOrder rawLines keysFound upsertKey@(YamlKey k) yObject =
         keyCmp = Yaml.setConfCompare preservingCompare Yaml.defConfig
     
     in RawYaml <$> decodeUtf8' (Yaml.encodePretty keyCmp yObject)
+
+endSentinel :: Text
+endSentinel = "ED10F56C-562E-4847-A50B-7541C1732A15: 2986F150-E4A0-41D8-AB9C-8BD82FA12DC4"
+
+-- | This is leaking implementation but adding a sentinal key-value to the end
+-- of YAML is a cheap way to ensure trailing newlines are not swallowed.
+addSentinels :: RawYaml -> RawYaml
+addSentinels (RawYaml x) = RawYaml $ x <> endSentinel
+
+removeSentinels :: RawYaml -> RawYaml
+removeSentinels (RawYaml x) = RawYaml . T.unlines . filter (/= endSentinel) $ T.lines x
 
 findKeyLine :: [RawYamlLine] -> YamlKey -> Maybe Int
 findKeyLine rawLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
