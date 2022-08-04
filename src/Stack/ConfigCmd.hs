@@ -95,7 +95,7 @@ cfgCmdSet cmd = do
                  (fromString (toFilePath configFilePath) <>
                   " already contained the intended configuration and remains unchanged.")
         else do
-            let configLines = RawYamlLine <$> T.lines (coerce rawConfig)
+            let configLines = yamlLines rawConfig
             either
                 throwM
                 (\updated -> do

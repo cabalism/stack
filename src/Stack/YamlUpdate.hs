@@ -7,9 +7,16 @@
 {-# LANGUAGE ViewPatterns               #-}
 
 -- | Update YAML preserving top-level key order, blank lines and comments.
+--
+-- The call sequence is mkRaw, encodeInOrder, redress and unmkRaw but if you
+-- don't care about preserving trailing blank lines this can be simplified to
+-- encodeInOrder and redress.
+--
+-- Use yamlLines to transform 'RawYaml' to ['RawYamlLine'].
 module Stack.YamlUpdate
     ( encodeInOrder, redress
     , mkRaw, unmkRaw
+    , yamlLines
     , RawYaml(..), RawYamlLine(..), YamlKey(..)
     ) where
 
@@ -21,11 +28,20 @@ import qualified Data.Yaml.Pretty as Yaml
 import qualified RIO.Text as T
 import qualified RIO.Map as Map
 
+-- | A whole YAML document, may contain line breaks.
 newtype RawYaml = RawYaml Text deriving newtype Display
+-- | One line from a YAML document, shouldn't contain line breaks.
 newtype RawYamlLine = RawYamlLine Text
+-- | A YAML top-level key as in @key: value@.
 newtype YamlKey = YamlKey Text deriving newtype (Eq, Display)
+
+-- | The line number of a blank line.
 newtype YamlLineBlank = YamlLineBlank Int deriving newtype Display
+-- | A line number and some content, usually a comment. This can be used with an
+-- empty comment to carry the line number for a blank line.
 newtype YamlLineComment = YamlLineComment (Int, Text)
+-- | A mapping from the line number after an encoding that strips blank lines
+-- and comments to a line number of the original document.
 newtype YamlLineReindex = YamlLineReindex (Int, Int)
 
 data YamlLines =
@@ -55,6 +71,11 @@ data Pegged =
         -- ^ Blank lines and whole line comments from a range to be put back on
         -- the same line as they were taken from.
         }
+
+-- | Converts raw YAML as 'Text' with line breaks into a list of lines, dropping
+-- trailing line breaks.
+yamlLines :: RawYaml -> [RawYamlLine]
+yamlLines x = RawYamlLine <$> T.lines (coerce x)
 
 -- | Puts blank lines and comments from the original lines into the update.
 redress :: [RawYamlLine] -> RawYaml -> RawYaml
