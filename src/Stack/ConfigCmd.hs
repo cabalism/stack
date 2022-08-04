@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE CPP                        #-}
@@ -119,13 +120,21 @@ newtype YamlKey = YamlKey Text deriving newtype Display
 
 keepBlanks :: HasLogFunc env => [RawConfigLine] -> YamlKey -> RIO env (Text -> Text)
 keepBlanks rawConfigLines (YamlKey addedKey) = do
-    let blanks = findBlanks rawConfigLines
+    let (blanks, reindices) = findBlanks rawConfigLines
     mapM_ (logInfo . display) blanks
     return $ \ t ->
         let (ks, others) = L.partition (addedKey `RioT.isPrefixOf`) (RioT.lines t)
             xs = zip [1 ..] others
+
             ys =
-                [ RioT.unlines $ x : (T.pack (show i ++ " " ++ show j) <$ filter (\n -> i < n && n <= j) blanks)
+                [
+                  let
+                    blankLines = fromMaybe [] $ do
+                        i' <- L.lookup i reindices
+                        j' <- L.lookup j reindices
+                        return $ filter (\b -> i' <= b && b < j') blanks
+                  in
+                    RioT.unlines $ x : (T.pack . show <$> blankLines)
                 | (i, x) <- xs
                 | (j, _) <- drop 1 xs ++ [(0, "")]
                 ]
@@ -152,12 +161,14 @@ findIdx rawConfigLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isN
     | i <- [1 ..]
     ]
 
-findBlanks :: [RawConfigLine] -> [Int]
-findBlanks rawConfigLines = catMaybes $
-    [ if y == "" then Just i else Nothing
-    | RawConfigLine y <- rawConfigLines
-    | i <- [1 ..]
-    ]
+findBlanks :: [RawConfigLine] -> ([Int], [(Int, Int)])
+findBlanks rawConfigLines =
+    let (ls, rs) = partitionEithers
+                                [ if y == "" then Left i else Right i
+                                | RawConfigLine y <- rawConfigLines
+                                | i <- [1 ..]
+                                ]
+    in (ls, zip [1 ..] rs)
 
 cfgCmdSetValue
     :: (HasConfig env, HasGHCVariant env)
