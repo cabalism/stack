@@ -28,6 +28,7 @@ import qualified Data.Map.Merge.Strict as Map
 #if !MIN_VERSION_aeson(2,0,0)
 import qualified Data.HashMap.Strict as HMap
 #endif
+import qualified Data.Text as T
 import qualified Data.Yaml as Yaml
 import qualified Options.Applicative as OA
 import qualified Options.Applicative.Types as OA
@@ -35,7 +36,6 @@ import           Options.Applicative.Builder.Extra
 import           Pantry (loadSnapshot)
 import           Path
 import qualified RIO.Map as Map
-import qualified RIO.Text as T
 import           RIO.Process (envVarsL)
 import           Stack.Config (makeConcreteResolver, getProjectConfig, getImplicitGlobalProjectDir)
 import           Stack.Constants
@@ -96,14 +96,15 @@ cfgCmdSet cmd = do
                   " already contained the intended configuration and remains unchanged.")
         else do
             let configLines = RawYamlLine <$> T.lines (coerce rawConfig)
-            case encodeInOrder configLines (coerce yamlKeys) (coerce cmdKey) config' of
-                Left ex -> throwM ex
-                Right updated -> do
+            either
+                throwM
+                (\updated -> do
                     let redressed = coerce . removeSentinels $ redress configLines updated
                     writeBinaryFileAtomic configFilePath . byteString $ encodeUtf8 redressed
 
                     let file = fromString $ toFilePath configFilePath
-                    logInfo (file <> " has been updated.")
+                    logInfo (file <> " has been updated."))
+                (encodeInOrder configLines (coerce yamlKeys) (coerce cmdKey) config')
 
 cfgCmdSetValue
     :: (HasConfig env, HasGHCVariant env)
