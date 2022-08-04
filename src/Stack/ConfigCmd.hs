@@ -99,7 +99,7 @@ cfgCmdSet cmd = do
             either
                 throwM
                 (\updated -> do
-                    let redressed = coerce . removeSentinels $ redress configLines updated
+                    let (RawYaml redressed) = removeSentinels $ redress configLines updated
                     writeBinaryFileAtomic configFilePath . byteString $ encodeUtf8 redressed
 
                     let file = fromString $ toFilePath configFilePath
