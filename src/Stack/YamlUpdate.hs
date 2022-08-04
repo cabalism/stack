@@ -47,31 +47,49 @@ data YamlLines =
 
 -- | Puts blank lines and comments from the original lines into the update.
 redress :: [RawYamlLine] -> RawYaml -> Text
-redress
-    (pegLines -> YamlLines{blanks, wholeLineComments, partLineComments, reindices})
-    (RawYaml t) = let xs = zip [1 ..] (T.lines t) in
-        T.concat
-            [
-                T.unlines . fromMaybe [x] $ do
-                    let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
-                    i' <- reindex i
-                    j' <- reindex j
-                    let lineNumbers = filter (\b -> i' <= b && b < j') $ coerce blanks
-                    let ls = (\line -> YamlLineComment (line, "")) <$> lineNumbers
-                    let filterLineNumber = filter ((\c -> i' <= c && c < j') . commentLineNumber) 
-                    let cs = filterLineNumber wholeLineComments
-                    let ps = filterLineNumber partLineComments
-                    let blankLinesAsComments = L.sortOn commentLineNumber (ls ++ cs)
-                    let x' = maybe
-                                x
-                                (\(YamlLineComment (_, c)) -> x <> " " <> comment c)
-                                (L.find ((== i') . commentLineNumber) ps)
+redress rawLines (RawYaml t) = let xs = zip [1 ..] (T.lines t) in
+    T.concat
+        [
+            T.unlines . fromMaybe [x] $ do
+                (i', leading, partComments, trailing) <- fetchPegged rawLines (i, j)
 
-                    return (x' : ((\(YamlLineComment (_, c)) -> c) <$> blankLinesAsComments))
+                let x' = maybe
+                            x
+                            (\(YamlLineComment (_, c)) -> x <> " " <> dropToComment c)
+                            (L.find ((== i') . commentLineNumber) partComments)
 
-            | (i, x) <- xs
-            | (j, _) <- drop 1 xs ++ [(0, "")]
-            ]
+                let cs = x' : (comment <$> trailing)
+
+                return $ if i /= 1 then cs else (comment <$> leading) ++ cs
+
+        | (i, x) <- xs
+        | (j, _) <- drop 1 xs ++ [(0, "")]
+        ]
+
+fetchPegged
+    :: [RawYamlLine]
+    -> (Int, Int)
+    -> Maybe (Int, [YamlLineComment], [YamlLineComment], [YamlLineComment])
+fetchPegged (pegLines -> yl@YamlLines{reindices}) (i, j) = do
+    let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
+
+    i' <- reindex i
+    j' <- reindex j
+
+    let (ps, trailing) = fetchInRange yl (\b -> i' <= b && b < j')
+    let leading = if i /= 1 then [] else snd $ fetchInRange yl (\b -> b < i')
+
+    return (i', leading, ps, trailing)
+
+fetchInRange :: YamlLines -> (Int -> Bool) -> ([YamlLineComment], [YamlLineComment])
+fetchInRange YamlLines{blanks, wholeLineComments, partLineComments} p =
+    let lineNumbers = filter p $ coerce blanks
+        ls = (\line -> YamlLineComment (line, "")) <$> lineNumbers
+        filterLineNumber = filter (p . commentLineNumber) 
+        cs = filterLineNumber wholeLineComments
+        ps = filterLineNumber partLineComments
+    in
+        (ps, L.sortOn commentLineNumber $ ls ++ cs)
 
 -- | Uses the order of the keys in the original to preserve the order in the
 -- update except that inserting a key orders it last.
@@ -103,14 +121,17 @@ findKeyLine rawLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNot
     | i <- [1 ..]
     ]
 
+comment :: YamlLineComment -> Text
+comment (YamlLineComment (_, c)) = c
+
 commentLineNumber :: YamlLineComment -> Int
 commentLineNumber (YamlLineComment (c, _)) = c
 
 instance Display YamlLineComment where
     textDisplay (YamlLineComment (i, s)) = textDisplay . T.pack $ show (i, T.unpack s)
 
-comment :: Text -> Text
-comment = T.dropWhile (/= '#') 
+dropToComment :: Text -> Text
+dropToComment = T.dropWhile (/= '#') 
 
 -- | Gather enough information about lines to peg line numbers so that blank
 -- lines and comments can be reinserted later.
@@ -124,7 +145,7 @@ pegLines rawLines =
                                 Left . Right $ YamlLineComment (i, y)
 
                            | otherwise ->
-                                if "#" `T.isPrefixOf` comment y
+                                if "#" `T.isPrefixOf` dropToComment y
                                     then Right . Left $ YamlLineComment (i, y)
                                     else Right $ Right i
 
