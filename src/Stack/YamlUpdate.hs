@@ -47,19 +47,32 @@ data YamlLines =
         -- and whole line comments are added back in.
         }
 
+data Pegged =
+    Pegged
+        { newIndex :: !Int
+        -- ^ The new line number to put a line of content.
+        , leading :: ![YamlLineComment]
+        -- ^ Comments for putting before anything else.
+        , partComments :: ![YamlLineComment]
+        -- ^ Comments to be appended to lines.
+        , spanComments :: ![YamlLineComment]
+        -- ^ Blank lines and whole line comments from a range to be put back on
+        -- the same line as they were taken from.
+        }
+
 -- | Puts blank lines and comments from the original lines into the update.
 redress :: [RawYamlLine] -> RawYaml -> RawYaml
 redress rawLines (RawYaml t) = let xs = zip [1 ..] (T.lines t) in RawYaml . T.concat $
     [
         T.unlines . fromMaybe [x] $ do
-            (i', leading, partComments, trailing) <- fetchPegged rawLines (i, j)
+            Pegged{newIndex = i', leading, partComments, spanComments} <- fetchPegged rawLines (i, j)
 
             let x' = maybe
                         x
                         (\(YamlLineComment (_, c)) -> x <> " " <> dropToComment c)
                         (L.find ((== i') . commentLineNumber) partComments)
 
-            let cs = x' : (comment <$> trailing)
+            let cs = x' : (comment <$> spanComments)
 
             return $ if i /= 1 then cs else (comment <$> leading) ++ cs
 
@@ -67,20 +80,21 @@ redress rawLines (RawYaml t) = let xs = zip [1 ..] (T.lines t) in RawYaml . T.co
     | (j, _) <- drop 1 xs ++ [(0, "")]
     ]
 
-fetchPegged
-    :: [RawYamlLine]
-    -> (Int, Int)
-    -> Maybe (Int, [YamlLineComment], [YamlLineComment], [YamlLineComment])
+fetchPegged :: [RawYamlLine] -> (Int, Int) -> Maybe Pegged
 fetchPegged (pegLines -> yl@YamlLines{reindices}) (i, j) = do
     let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
 
     i' <- reindex i
     j' <- reindex j
 
-    let (ps, trailing) = fetchInRange yl (\b -> i' <= b && b < j')
-    let leading = if i /= 1 then [] else snd $ fetchInRange yl (\b -> b < i')
+    let (ps, spanned) = fetchInRange yl (\b -> i' <= b && b < j')
 
-    return (i', leading, ps, trailing)
+    return $ Pegged
+        { newIndex = i'
+        , leading = if i /= 1 then [] else snd $ fetchInRange yl (\b -> b < i')
+        , partComments = ps
+        , spanComments = spanned
+        }
 
 fetchInRange :: YamlLines -> (Int -> Bool) -> ([YamlLineComment], [YamlLineComment])
 fetchInRange YamlLines{blanks, wholeLineComments, partLineComments} p =
