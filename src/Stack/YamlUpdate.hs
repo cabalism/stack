@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiWayIf                 #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE ParallelListComp           #-}
 {-# LANGUAGE OverloadedStrings          #-}
 
@@ -28,7 +29,7 @@ newtype YamlKey = YamlKey Text deriving newtype (Eq, Display)
 
 keepBlanks :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> YamlKey -> RIO env (Text -> Text)
 keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
-    let (blanks, (wholeLineComments, partLineComments), reindices) = findBlanks rawConfigLines
+    let YamlLines{blanks, wholeLineComments, partLineComments, reindices} = pegLines rawConfigLines
     logInfo "BLANK LINE NUMBERS"
     mapM_ (logInfo . display) blanks
     logInfo "WHOLE LINE COMMENTS"
@@ -105,8 +106,25 @@ instance Display YamlLineComment where
 comment :: Text -> Text
 comment = RioT.dropWhile (/= '#') 
 
-findBlanks :: [RawConfigLine] -> ([YamlLineBlank], ([YamlLineComment], [YamlLineComment]), [YamlLineReindex])
-findBlanks rawConfigLines =
+data YamlLines =
+    YamlLines
+        { blanks :: ![YamlLineBlank]
+        -- ^ The line numbers of blank lines.
+        , wholeLineComments :: ![YamlLineComment]
+        -- ^ Comments where # is the first non-space character in that line so
+        -- that the comment takes up the whole line. Captured with the leading
+        -- spaces.
+        , partLineComments :: ![YamlLineComment]
+        -- ^ Comments that have been apended to a line.
+        , reindices :: ![YamlLineReindex]
+        -- ^ Bumps for line numbers that will need to be moved when blank lines
+        -- and whole line comments are added back in.
+        }
+
+-- | Gather enough information about lines to peg line numbers so that blank
+-- lines and comments can be reinserted later.
+pegLines :: [RawConfigLine] -> YamlLines
+pegLines rawConfigLines =
     let (ls, rs) = partitionEithers
                     [
                         if | y == "" -> Left . Left $ YamlLineBlank i
@@ -121,4 +139,6 @@ findBlanks rawConfigLines =
         (blanks, wholeLineComments) = partitionEithers ls
         (partLineComments, contentLines) = partitionEithers rs
         indexLines = L.sort $ contentLines ++ (commentLineNumber <$> partLineComments)
-    in (blanks, (wholeLineComments, partLineComments), zipWith (curry YamlLineReindex) [1 ..] indexLines)
+        reindex = zipWith (curry YamlLineReindex) [1 ..] indexLines
+
+    in YamlLines blanks wholeLineComments partLineComments reindex
