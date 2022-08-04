@@ -8,13 +8,9 @@
 
 -- | Update YAML preserving top-level key order, blank lines and comments.
 module Stack.YamlUpdate
-    ( encodeInOrder
-    , redress
-    , addSentinels
-    , removeSentinels
-    , RawYaml(..)
-    , RawYamlLine(..)
-    , YamlKey(..)
+    ( encodeInOrder, redress
+    , mkRaw, unmkRaw
+    , RawYaml(..), RawYamlLine(..), YamlKey(..)
     ) where
 
 import           Stack.Prelude
@@ -131,6 +127,12 @@ encodeInOrder rawLines keysFound upsertKey@(YamlKey k) yObject =
 
 endSentinel :: Text
 endSentinel = "ED10F56C-562E-4847-A50B-7541C1732A15: 2986F150-E4A0-41D8-AB9C-8BD82FA12DC4"
+
+mkRaw :: Text -> RawYaml
+mkRaw = addSentinels . RawYaml
+
+unmkRaw :: RawYaml -> Text
+unmkRaw = coerce . removeSentinels
 
 -- | This is leaking implementation but adding a sentinal key-value to the end
 -- of YAML is a cheap way to ensure trailing newlines are not swallowed.
