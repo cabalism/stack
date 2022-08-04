@@ -82,7 +82,7 @@ redress rawLines (RawYaml t) = let xs = zip [1 ..] (T.lines t) in RawYaml . T.co
 
 fetchPegged :: [RawYamlLine] -> (Int, Int) -> Maybe Pegged
 fetchPegged (pegLines -> yl@YamlLines{reindices}) (i, j) = do
-    let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
+    let reindex = flip L.lookup (coerce reindices)
 
     i' <- reindex i
     j' <- reindex j
