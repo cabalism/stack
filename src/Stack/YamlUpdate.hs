@@ -5,7 +5,7 @@
 {-# LANGUAGE ParallelListComp           #-}
 {-# LANGUAGE OverloadedStrings          #-}
 
--- | Update YAML preserving top-level key order, blank lines and line comments.
+-- | Update YAML preserving top-level key order, blank lines and comments.
 module Stack.YamlUpdate
     ( encodeInOrder
     , keepBlanks
@@ -17,10 +17,9 @@ module Stack.YamlUpdate
 import           Stack.Prelude
 import           Data.Coerce (coerce)
 import qualified Data.List as L
-import qualified Data.Text as T
 import qualified Data.Yaml as Yaml
 import qualified Data.Yaml.Pretty as Yaml
-import qualified RIO.Text as RioT
+import qualified RIO.Text as T
 import qualified RIO.Map as Map
 
 newtype RawYaml = RawYaml Text deriving newtype Display
@@ -60,14 +59,14 @@ keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
                 L.partition
                     (if key `L.elem` keys
                         then const False
-                        else (addedKey `RioT.isPrefixOf`))
-                    (RioT.lines t)
+                        else (addedKey `T.isPrefixOf`))
+                    (T.lines t)
 
             xs = zip [1 ..] others
 
             ys =
                 [
-                    RioT.unlines . fromMaybe [x] $ do
+                    T.unlines . fromMaybe [x] $ do
                         let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
                         i' <- reindex i
                         j' <- reindex j
@@ -89,7 +88,7 @@ keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
                 ]
 
         -- Append the added key line, assumed to be one line.
-        in RioT.concat $ ys ++ take 1 ks
+        in T.concat $ ys ++ take 1 ks
         
 encodeInOrder :: HasLogFunc env => [RawYamlLine] -> [YamlKey] -> Yaml.Object -> RIO env (Either UnicodeException Text)
 encodeInOrder rawConfigLines keysFound config' = do
@@ -106,7 +105,7 @@ encodeInOrder rawConfigLines keysFound config' = do
 
 findIdx :: [RawYamlLine] -> YamlKey -> Maybe Int
 findIdx rawConfigLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
-    [ if x `RioT.isPrefixOf` y then Just i else Nothing
+    [ if x `T.isPrefixOf` y then Just i else Nothing
     | RawYamlLine y <- rawConfigLines
     | i <- [1 ..]
     ]
@@ -115,10 +114,10 @@ commentLineNumber :: YamlLineComment -> Int
 commentLineNumber (YamlLineComment (c, _)) = c
 
 instance Display YamlLineComment where
-    textDisplay (YamlLineComment (i, s)) = textDisplay . T.pack $ show (i, RioT.unpack s)
+    textDisplay (YamlLineComment (i, s)) = textDisplay . T.pack $ show (i, T.unpack s)
 
 comment :: Text -> Text
-comment = RioT.dropWhile (/= '#') 
+comment = T.dropWhile (/= '#') 
 
 -- | Gather enough information about lines to peg line numbers so that blank
 -- lines and comments can be reinserted later.
@@ -127,14 +126,19 @@ pegLines rawConfigLines =
     let (ls, rs) = partitionEithers
                     [
                         if | y == "" -> Left . Left $ YamlLineBlank i
-                           | "#" `RioT.isPrefixOf` RioT.dropWhile (== ' ') y -> Left . Right $ YamlLineComment (i, y)
+
+                           | "#" `T.isPrefixOf` T.dropWhile (== ' ') y ->
+                                Left . Right $ YamlLineComment (i, y)
+
                            | otherwise ->
-                                if "#" `RioT.isPrefixOf` comment y
+                                if "#" `T.isPrefixOf` comment y
                                     then Right . Left $ YamlLineComment (i, y)
                                     else Right $ Right i
+
                     | RawYamlLine y <- rawConfigLines
                     | i <- [1 ..]
                     ]
+
         (blanks, wholeLineComments) = partitionEithers ls
         (partLineComments, contentLines) = partitionEithers rs
         indexLines = L.sort $ contentLines ++ (commentLineNumber <$> partLineComments)

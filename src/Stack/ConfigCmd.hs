@@ -28,7 +28,6 @@ import qualified Data.Map.Merge.Strict as Map
 #if !MIN_VERSION_aeson(2,0,0)
 import qualified Data.HashMap.Strict as HMap
 #endif
-import qualified Data.Text as T
 import qualified Data.Yaml as Yaml
 import qualified Options.Applicative as OA
 import qualified Options.Applicative.Types as OA
@@ -36,7 +35,7 @@ import           Options.Applicative.Builder.Extra
 import           Pantry (loadSnapshot)
 import           Path
 import qualified RIO.Map as Map
-import qualified RIO.Text as RioT
+import qualified RIO.Text as T
 import           RIO.Process (envVarsL)
 import           Stack.Config (makeConcreteResolver, getProjectConfig, getImplicitGlobalProjectDir)
 import           Stack.Constants
@@ -100,7 +99,7 @@ cfgCmdSet cmd = do
             let yamlKey = YamlKey cmdKey
             let yamlKeys = YamlKey <$> keysFound
 
-            let rawConfigLines = RawYamlLine <$> RioT.lines (coerce rawConfig)
+            let rawConfigLines = RawYamlLine <$> T.lines (coerce rawConfig)
             inOrder <- encodeInOrder rawConfigLines yamlKeys config'
 
             case inOrder of
