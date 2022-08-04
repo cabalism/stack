@@ -42,8 +42,9 @@ keepBlanks rawConfigLines (YamlKey addedKey) = do
             ys =
                 [
                     RioT.unlines . fromMaybe [x] $ do
-                        i' <- L.lookup i (coerce reindices :: [(Int, Int)])
-                        j' <- L.lookup j (coerce reindices :: [(Int, Int)])
+                        let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
+                        i' <- reindex i
+                        j' <- reindex j
                         let lineNumbers = filter (\b -> i' <= b && b < j') $ coerce blanks
                         let ls = (\line -> YamlLineComment (line, "")) <$> lineNumbers
                         let filterLineNumber = filter ((\c -> i' <= c && c < j') . commentLineNumber) 
