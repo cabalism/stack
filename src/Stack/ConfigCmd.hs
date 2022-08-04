@@ -105,9 +105,9 @@ cfgCmdSet cmd = do
             case inOrder of
                 Left ex -> throwM ex
                 Right x -> do
-                    keeper <- keepBlanks rawConfigLines yamlKeys yamlKey
-                    let withBlanks = encodeUtf8 $ keeper x
-                    writeBinaryFileAtomic configFilePath $ byteString withBlanks
+                    keeper <- redress rawConfigLines yamlKeys yamlKey
+                    let asWas = encodeUtf8 $ keeper x
+                    writeBinaryFileAtomic configFilePath $ byteString asWas
 
                     let file = fromString $ toFilePath configFilePath
                     logInfo (file <> " has been updated.")
