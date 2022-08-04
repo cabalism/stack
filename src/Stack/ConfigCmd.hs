@@ -85,20 +85,18 @@ cfgCmdSet cmd = do
     let cmdKey = cfgCmdSetOptionName cmd
 #if MIN_VERSION_aeson(2,0,0)
         config' = KeyMap.insert (Key.fromText cmdKey) newValue config
-        keysFound = Key.toText <$> KeyMap.keys config
+        yamlKeys = Key.toText <$> KeyMap.keys config
 #else
         config' = HMap.insert cmdKey newValue config
-        keysFound = HMap.keys config
+        yamlKeys = HMap.keys config
 #endif
     if config' == config
         then logInfo
                  (fromString (toFilePath configFilePath) <>
                   " already contained the intended configuration and remains unchanged.")
         else do
-            let yamlKey = YamlKey cmdKey
-            let yamlKeys = YamlKey <$> keysFound
             let configLines = RawYamlLine <$> T.lines (coerce rawConfig)
-            case encodeInOrder configLines yamlKeys yamlKey config' of
+            case encodeInOrder configLines (coerce yamlKeys) (coerce cmdKey) config' of
                 Left ex -> throwM ex
                 Right updated -> do
                     let redressed = coerce . removeSentinels $ redress configLines updated
