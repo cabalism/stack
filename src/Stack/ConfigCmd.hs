@@ -80,7 +80,7 @@ cfgCmdSet cmd = do
                          PCNoProject _extraDeps -> throwString "config command used when no project configuration available" -- maybe modify the ~/.stack/config.yaml file instead?
                  CommandScopeGlobal -> return (configUserConfigPath conf)
     -- We don't need to worry about checking for a valid yaml here
-    rawConfig <- RawConfig <$> liftIO (readFileUtf8 (toFilePath configFilePath))
+    rawConfig <- RawYaml <$> liftIO (readFileUtf8 (toFilePath configFilePath))
     (config :: Yaml.Object) <-
         liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>= either throwM return
     newValue <- cfgCmdSetValue (parent configFilePath) cmd
@@ -100,7 +100,7 @@ cfgCmdSet cmd = do
             let yamlKey = YamlKey cmdKey
             let yamlKeys = YamlKey <$> keysFound
 
-            let rawConfigLines = RawConfigLine <$> RioT.lines (coerce rawConfig)
+            let rawConfigLines = RawYamlLine <$> RioT.lines (coerce rawConfig)
             inOrder <- encodeInOrder rawConfigLines yamlKeys config'
 
             case inOrder of

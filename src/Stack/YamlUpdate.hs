@@ -9,8 +9,8 @@
 module Stack.YamlUpdate
     ( encodeInOrder
     , keepBlanks
-    , RawConfig(..)
-    , RawConfigLine(..)
+    , RawYaml(..)
+    , RawYamlLine(..)
     , YamlKey(..)
     ) where
 
@@ -23,11 +23,29 @@ import qualified Data.Yaml.Pretty as Yaml
 import qualified RIO.Text as RioT
 import qualified RIO.Map as Map
 
-newtype RawConfig = RawConfig Text deriving newtype Display
-newtype RawConfigLine = RawConfigLine Text
+newtype RawYaml = RawYaml Text deriving newtype Display
+newtype RawYamlLine = RawYamlLine Text
 newtype YamlKey = YamlKey Text deriving newtype (Eq, Display)
+newtype YamlLineBlank = YamlLineBlank Int deriving newtype Display
+newtype YamlLineComment = YamlLineComment (Int, Text)
+newtype YamlLineReindex = YamlLineReindex (Int, Int)
 
-keepBlanks :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> YamlKey -> RIO env (Text -> Text)
+data YamlLines =
+    YamlLines
+        { blanks :: ![YamlLineBlank]
+        -- ^ The line numbers of blank lines.
+        , wholeLineComments :: ![YamlLineComment]
+        -- ^ Comments where # is the first non-space character in that line so
+        -- that the comment takes up the whole line. Captured with the leading
+        -- spaces.
+        , partLineComments :: ![YamlLineComment]
+        -- ^ Comments that have been apended to a line.
+        , reindices :: ![YamlLineReindex]
+        -- ^ Bumps for line numbers that will need to be moved when blank lines
+        -- and whole line comments are added back in.
+        }
+
+keepBlanks :: HasLogFunc env => [RawYamlLine] -> [YamlKey] -> YamlKey -> RIO env (Text -> Text)
 keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
     let YamlLines{blanks, wholeLineComments, partLineComments, reindices} = pegLines rawConfigLines
     logDebug "YAML UPDATE: BLANK LINE NUMBERS"
@@ -73,7 +91,7 @@ keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
         -- Append the added key line, assumed to be one line.
         in RioT.concat $ ys ++ take 1 ks
         
-encodeInOrder :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> Yaml.Object -> RIO env (Either UnicodeException Text)
+encodeInOrder :: HasLogFunc env => [RawYamlLine] -> [YamlKey] -> Yaml.Object -> RIO env (Either UnicodeException Text)
 encodeInOrder rawConfigLines keysFound config' = do
     logDebug "YAML UPDATE: TOP-LEVEL KEYS"
     mapM_ (logDebug . display) keysFound
@@ -86,16 +104,12 @@ encodeInOrder rawConfigLines keysFound config' = do
     let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
     return . decodeUtf8' $ Yaml.encodePretty keyCmp config'
 
-findIdx :: [RawConfigLine] -> YamlKey -> Maybe Int
+findIdx :: [RawYamlLine] -> YamlKey -> Maybe Int
 findIdx rawConfigLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
     [ if x `RioT.isPrefixOf` y then Just i else Nothing
-    | RawConfigLine y <- rawConfigLines
+    | RawYamlLine y <- rawConfigLines
     | i <- [1 ..]
     ]
-
-newtype YamlLineBlank = YamlLineBlank Int deriving newtype Display
-newtype YamlLineComment = YamlLineComment (Int, Text)
-newtype YamlLineReindex = YamlLineReindex (Int, Int)
 
 commentLineNumber :: YamlLineComment -> Int
 commentLineNumber (YamlLineComment (c, _)) = c
@@ -106,24 +120,9 @@ instance Display YamlLineComment where
 comment :: Text -> Text
 comment = RioT.dropWhile (/= '#') 
 
-data YamlLines =
-    YamlLines
-        { blanks :: ![YamlLineBlank]
-        -- ^ The line numbers of blank lines.
-        , wholeLineComments :: ![YamlLineComment]
-        -- ^ Comments where # is the first non-space character in that line so
-        -- that the comment takes up the whole line. Captured with the leading
-        -- spaces.
-        , partLineComments :: ![YamlLineComment]
-        -- ^ Comments that have been apended to a line.
-        , reindices :: ![YamlLineReindex]
-        -- ^ Bumps for line numbers that will need to be moved when blank lines
-        -- and whole line comments are added back in.
-        }
-
 -- | Gather enough information about lines to peg line numbers so that blank
 -- lines and comments can be reinserted later.
-pegLines :: [RawConfigLine] -> YamlLines
+pegLines :: [RawYamlLine] -> YamlLines
 pegLines rawConfigLines =
     let (ls, rs) = partitionEithers
                     [
@@ -133,7 +132,7 @@ pegLines rawConfigLines =
                                 if "#" `RioT.isPrefixOf` comment y
                                     then Right . Left $ YamlLineComment (i, y)
                                     else Right $ Right i
-                    | RawConfigLine y <- rawConfigLines
+                    | RawYamlLine y <- rawConfigLines
                     | i <- [1 ..]
                     ]
         (blanks, wholeLineComments) = partitionEithers ls
