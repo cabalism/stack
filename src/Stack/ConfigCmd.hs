@@ -137,9 +137,10 @@ keepBlanks rawConfigLines (YamlKey addedKey) = do
                         i' <- L.lookup i (coerce reindices :: [(Int, Int)])
                         j' <- L.lookup j (coerce reindices :: [(Int, Int)])
                         let lineNumbers = filter (\b -> i' <= b && b < j') $ coerce blanks
-                        let ls = (\line -> YamlLineComment (line, T.pack $ show line)) <$> lineNumbers
-                        let cs = filter ((\c -> i' <= c && c < j') . commentLineNumber) wholeLineComments
-                        let ps = filter ((\c -> i' <= c && c < j') . commentLineNumber) partLineComments
+                        let ls = (\line -> YamlLineComment (line, "")) <$> lineNumbers
+                        let filterLineNumber = filter ((\c -> i' <= c && c < j') . commentLineNumber) 
+                        let cs = filterLineNumber wholeLineComments
+                        let ps = filterLineNumber partLineComments
                         let blankLinesAsComments = L.sortOn commentLineNumber (ls ++ cs)
                         let x' = maybe
                                     x
