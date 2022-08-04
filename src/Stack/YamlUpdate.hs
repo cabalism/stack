@@ -30,12 +30,12 @@ newtype YamlKey = YamlKey Text deriving newtype (Eq, Display)
 keepBlanks :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> YamlKey -> RIO env (Text -> Text)
 keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
     let YamlLines{blanks, wholeLineComments, partLineComments, reindices} = pegLines rawConfigLines
-    logInfo "BLANK LINE NUMBERS"
-    mapM_ (logInfo . display) blanks
-    logInfo "WHOLE LINE COMMENTS"
-    mapM_ (logInfo . display) wholeLineComments
-    logInfo "PART LINE COMMENTS"
-    mapM_ (logInfo . display) partLineComments
+    logDebug "YAML UPDATE: BLANK LINE NUMBERS"
+    mapM_ (logDebug . display) blanks
+    logDebug "YAML UPDATE: WHOLE LINE COMMENTS"
+    mapM_ (logDebug . display) wholeLineComments
+    logDebug "YAML UPDATE: PART LINE COMMENTS"
+    mapM_ (logDebug . display) partLineComments
     return $ \ t ->
         let (ks, others) =
                 -- If the key isn't there already partition it for later append.
@@ -75,8 +75,8 @@ keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
         
 encodeInOrder :: HasLogFunc env => [RawConfigLine] -> [YamlKey] -> Yaml.Object -> RIO env (Either UnicodeException Text)
 encodeInOrder rawConfigLines keysFound config' = do
-    logInfo "TOP-LEVEL KEYS"
-    mapM_ (logInfo . display) keysFound
+    logDebug "YAML UPDATE: TOP-LEVEL KEYS"
+    mapM_ (logDebug . display) keysFound
     let findLine = findIdx rawConfigLines
     let ixs = (\yk@(YamlKey x) -> (x, findLine yk)) <$> keysFound
     let mapIxs :: Map Text (Maybe Int)

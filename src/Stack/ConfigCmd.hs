@@ -100,9 +100,6 @@ cfgCmdSet cmd = do
             let yamlKey = YamlKey cmdKey
             let yamlKeys = YamlKey <$> keysFound
 
-            logInfo "RAW CONFIG"
-            logInfo $ display rawConfig
-
             let rawConfigLines = RawConfigLine <$> RioT.lines (coerce rawConfig)
             inOrder <- encodeInOrder rawConfigLines yamlKeys config'
 
