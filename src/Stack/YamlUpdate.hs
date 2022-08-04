@@ -102,9 +102,8 @@ encodeInOrder
     -> Either UnicodeException RawYaml
 encodeInOrder rawLines keysFound yObject =
     let keyLine = findKeyLine rawLines
-        ixs = (\yk@(YamlKey x) -> (x, keyLine yk)) <$> keysFound
-        mapIxs = Map.fromList ixs
-        firstLineCompare x y = Map.lookup x mapIxs `compare` Map.lookup y mapIxs
+        ixMap = Map.fromList $ (\yk@(YamlKey x) -> (x, keyLine yk)) <$> keysFound
+        firstLineCompare x y = Map.lookup x ixMap `compare` Map.lookup y ixMap
         keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
     
     in RawYaml <$> decodeUtf8' (Yaml.encodePretty keyCmp yObject)
