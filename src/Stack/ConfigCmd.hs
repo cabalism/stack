@@ -1,6 +1,8 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE CPP                        #-}
@@ -120,8 +122,9 @@ newtype YamlKey = YamlKey Text deriving newtype Display
 
 keepBlanks :: HasLogFunc env => [RawConfigLine] -> YamlKey -> RIO env (Text -> Text)
 keepBlanks rawConfigLines (YamlKey addedKey) = do
-    let (blanks, reindices) = findBlanks rawConfigLines
+    let ((blanks, comments), reindices) = findBlanks rawConfigLines
     mapM_ (logInfo . display) blanks
+    mapM_ (logInfo . display) comments
     return $ \ t ->
         let (ks, others) = L.partition (addedKey `RioT.isPrefixOf`) (RioT.lines t)
             xs = zip [1 ..] others
@@ -129,12 +132,15 @@ keepBlanks rawConfigLines (YamlKey addedKey) = do
             ys =
                 [
                   let
-                    blankLines = fromMaybe [] $ do
-                        i' <- L.lookup i reindices
-                        j' <- L.lookup j reindices
-                        return $ filter (\b -> i' <= b && b < j') blanks
+                    blankLinesAsComments = fromMaybe [] $ do
+                        i' <- L.lookup i (coerce reindices :: [(Int, Int)])
+                        j' <- L.lookup j (coerce reindices :: [(Int, Int)])
+                        let lineNumbers = filter (\b -> i' <= b && b < j') $ coerce blanks
+                        let ls = (\ line -> YamlLineComment (line, T.pack $ show line)) <$> lineNumbers
+                        let cs = filter ((\c -> i' <= c && c < j') . commentLineNumber) comments
+                        return $ L.sortOn commentLineNumber (ls ++ cs)
                   in
-                    RioT.unlines $ x : (T.pack . show <$> blankLines)
+                    RioT.unlines $ x : ((\(YamlLineComment (_, c)) -> c) <$> blankLinesAsComments)
                 | (i, x) <- xs
                 | (j, _) <- drop 1 xs ++ [(0, "")]
                 ]
@@ -161,14 +167,27 @@ findIdx rawConfigLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isN
     | i <- [1 ..]
     ]
 
-findBlanks :: [RawConfigLine] -> ([Int], [(Int, Int)])
+newtype YamlLineBlank = YamlLineBlank Int deriving newtype Display
+newtype YamlLineComment = YamlLineComment (Int, Text)
+newtype YamlLineReindex = YamlLineReindex (Int, Int)
+
+commentLineNumber :: YamlLineComment -> Int
+commentLineNumber (YamlLineComment (c, _)) = c
+
+instance Display YamlLineComment where
+    textDisplay (YamlLineComment (i, s)) = textDisplay . T.pack $ show (i, RioT.unpack s)
+
+findBlanks :: [RawConfigLine] -> (([YamlLineBlank], [YamlLineComment]), [YamlLineReindex])
 findBlanks rawConfigLines =
     let (ls, rs) = partitionEithers
-                                [ if y == "" then Left i else Right i
-                                | RawConfigLine y <- rawConfigLines
-                                | i <- [1 ..]
-                                ]
-    in (ls, zip [1 ..] rs)
+                    [
+                        if | y == "" -> Left . Left $ YamlLineBlank i
+                           | "#" `RioT.isPrefixOf` (RioT.dropWhile (== ' ') y) -> Left . Right $ YamlLineComment (i, y)
+                           | otherwise -> Right i
+                    | RawConfigLine y <- rawConfigLines
+                    | i <- [1 ..]
+                    ]
+    in (partitionEithers ls, zipWith (curry YamlLineReindex) [1 ..] rs)
 
 cfgCmdSetValue
     :: (HasConfig env, HasGHCVariant env)
