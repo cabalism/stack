@@ -98,11 +98,11 @@ cfgCmdSet cmd = do
         else do
             let yamlKey = YamlKey cmdKey
             let yamlKeys = YamlKey <$> keysFound
-            let rawConfigLines = RawYamlLine <$> T.lines (coerce rawConfig)
-            case encodeInOrder rawConfigLines yamlKeys config' of
+            let configLines = RawYamlLine <$> T.lines (coerce rawConfig)
+            case encodeInOrder configLines yamlKeys yamlKey config' of
                 Left ex -> throwM ex
                 Right updated -> do
-                    let redressed = redress rawConfigLines yamlKeys yamlKey updated
+                    let redressed = redress configLines updated
                     writeBinaryFileAtomic configFilePath . byteString $ encodeUtf8 redressed
 
                     let file = fromString $ toFilePath configFilePath

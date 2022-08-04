@@ -45,66 +45,54 @@ data YamlLines =
         -- and whole line comments are added back in.
         }
 
--- | Takes an original set of lines, top-level keys and the update key and then
--- puts back the blank lines and comments into the update.
-redress
-    :: [RawYamlLine]
-    -> [YamlKey]
-    -> YamlKey
-    -> RawYaml
-    -> Text
+-- | Puts blank lines and comments from the original lines into the update.
+redress :: [RawYamlLine] -> RawYaml -> Text
 redress
     (pegLines -> YamlLines{blanks, wholeLineComments, partLineComments, reindices})
-    keys
-    key@(YamlKey addedKey)
-    (RawYaml t) =
-        let (ks, others) =
-                -- If the key isn't there already partition it for later append.
-                L.partition
-                    (if key `L.elem` keys
-                        then const False
-                        else (addedKey `T.isPrefixOf`))
-                    (T.lines t)
+    (RawYaml t) = let xs = zip [1 ..] (T.lines t) in
+        T.concat
+            [
+                T.unlines . fromMaybe [x] $ do
+                    let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
+                    i' <- reindex i
+                    j' <- reindex j
+                    let lineNumbers = filter (\b -> i' <= b && b < j') $ coerce blanks
+                    let ls = (\line -> YamlLineComment (line, "")) <$> lineNumbers
+                    let filterLineNumber = filter ((\c -> i' <= c && c < j') . commentLineNumber) 
+                    let cs = filterLineNumber wholeLineComments
+                    let ps = filterLineNumber partLineComments
+                    let blankLinesAsComments = L.sortOn commentLineNumber (ls ++ cs)
+                    let x' = maybe
+                                x
+                                (\(YamlLineComment (_, c)) -> x <> " " <> comment c)
+                                (L.find ((== i') . commentLineNumber) ps)
 
-            xs = zip [1 ..] others
+                    return (x' : ((\(YamlLineComment (_, c)) -> c) <$> blankLinesAsComments))
 
-            ys =
-                [
-                    T.unlines . fromMaybe [x] $ do
-                        let reindex = flip L.lookup (coerce reindices :: [(Int, Int)])
-                        i' <- reindex i
-                        j' <- reindex j
-                        let lineNumbers = filter (\b -> i' <= b && b < j') $ coerce blanks
-                        let ls = (\line -> YamlLineComment (line, "")) <$> lineNumbers
-                        let filterLineNumber = filter ((\c -> i' <= c && c < j') . commentLineNumber) 
-                        let cs = filterLineNumber wholeLineComments
-                        let ps = filterLineNumber partLineComments
-                        let blankLinesAsComments = L.sortOn commentLineNumber (ls ++ cs)
-                        let x' = maybe
-                                    x
-                                    (\(YamlLineComment (_, c)) -> x <> " " <> comment c)
-                                    (L.find ((== i') . commentLineNumber) ps)
+            | (i, x) <- xs
+            | (j, _) <- drop 1 xs ++ [(0, "")]
+            ]
 
-                        return (x' : ((\(YamlLineComment (_, c)) -> c) <$> blankLinesAsComments))
-
-                | (i, x) <- xs
-                | (j, _) <- drop 1 xs ++ [(0, "")]
-                ]
-
-        -- Append the added key line, assumed to be one line.
-        in T.concat $ ys ++ take 1 ks
-        
--- | Uses the order of the keys in the original to preserve the order in the update.
+-- | Uses the order of the keys in the original to preserve the order in the
+-- update except that inserting a key orders it last.
 encodeInOrder
     :: [RawYamlLine]
     -> [YamlKey]
+    -> YamlKey
     -> Yaml.Object
     -> Either UnicodeException RawYaml
-encodeInOrder rawLines keysFound yObject =
+encodeInOrder rawLines keysFound upsertKey@(YamlKey k) yObject =
     let keyLine = findKeyLine rawLines
         ixMap = Map.fromList $ (\yk@(YamlKey x) -> (x, keyLine yk)) <$> keysFound
-        firstLineCompare x y = Map.lookup x ixMap `compare` Map.lookup y ixMap
-        keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
+        preservingCompare x y =
+            -- If updating then preserve order but if inserting then put last.
+            if | upsertKey `L.elem` keysFound -> Map.lookup x ixMap `compare` Map.lookup y ixMap
+               | k == x, k == y -> EQ
+               | k == x -> GT
+               | k == y -> LT
+               | otherwise -> Map.lookup x ixMap `compare` Map.lookup y ixMap
+
+        keyCmp = Yaml.setConfCompare preservingCompare Yaml.defConfig
     
     in RawYaml <$> decodeUtf8' (Yaml.encodePretty keyCmp yObject)
 
