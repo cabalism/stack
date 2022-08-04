@@ -45,8 +45,8 @@ data YamlLines =
         }
 
 keepBlanks :: HasLogFunc env => [RawYamlLine] -> [YamlKey] -> YamlKey -> RIO env (Text -> Text)
-keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
-    let YamlLines{blanks, wholeLineComments, partLineComments, reindices} = pegLines rawConfigLines
+keepBlanks rawLines keys key@(YamlKey addedKey) = do
+    let YamlLines{blanks, wholeLineComments, partLineComments, reindices} = pegLines rawLines
     logDebug "YAML UPDATE: BLANK LINE NUMBERS"
     mapM_ (logDebug . display) blanks
     logDebug "YAML UPDATE: WHOLE LINE COMMENTS"
@@ -90,23 +90,28 @@ keepBlanks rawConfigLines keys key@(YamlKey addedKey) = do
         -- Append the added key line, assumed to be one line.
         in T.concat $ ys ++ take 1 ks
         
-encodeInOrder :: HasLogFunc env => [RawYamlLine] -> [YamlKey] -> Yaml.Object -> RIO env (Either UnicodeException Text)
-encodeInOrder rawConfigLines keysFound config' = do
+encodeInOrder
+    :: HasLogFunc env
+    => [RawYamlLine]
+    -> [YamlKey]
+    -> Yaml.Object
+    -> RIO env (Either UnicodeException Text)
+encodeInOrder rawLines keysFound yObject = do
     logDebug "YAML UPDATE: TOP-LEVEL KEYS"
     mapM_ (logDebug . display) keysFound
-    let findLine = findIdx rawConfigLines
-    let ixs = (\yk@(YamlKey x) -> (x, findLine yk)) <$> keysFound
+    let keyLine = findKeyLine rawLines
+    let ixs = (\yk@(YamlKey x) -> (x, keyLine yk)) <$> keysFound
     let mapIxs :: Map Text (Maybe Int)
         mapIxs = Map.fromList ixs
     let firstLineCompare :: Text -> Text -> Ordering
         firstLineCompare x y = Map.lookup x mapIxs `compare` Map.lookup y mapIxs
     let keyCmp = Yaml.setConfCompare firstLineCompare Yaml.defConfig
-    return . decodeUtf8' $ Yaml.encodePretty keyCmp config'
+    return . decodeUtf8' $ Yaml.encodePretty keyCmp yObject
 
-findIdx :: [RawYamlLine] -> YamlKey -> Maybe Int
-findIdx rawConfigLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
+findKeyLine :: [RawYamlLine] -> YamlKey -> Maybe Int
+findKeyLine rawLines (YamlKey x) = join . listToMaybe . take 1 . dropWhile isNothing $
     [ if x `T.isPrefixOf` y then Just i else Nothing
-    | RawYamlLine y <- rawConfigLines
+    | RawYamlLine y <- rawLines
     | i <- [1 ..]
     ]
 
@@ -122,7 +127,7 @@ comment = T.dropWhile (/= '#')
 -- | Gather enough information about lines to peg line numbers so that blank
 -- lines and comments can be reinserted later.
 pegLines :: [RawYamlLine] -> YamlLines
-pegLines rawConfigLines =
+pegLines rawLines =
     let (ls, rs) = partitionEithers
                     [
                         if | y == "" -> Left . Left $ YamlLineBlank i
@@ -135,7 +140,7 @@ pegLines rawConfigLines =
                                     then Right . Left $ YamlLineComment (i, y)
                                     else Right $ Right i
 
-                    | RawYamlLine y <- rawConfigLines
+                    | RawYamlLine y <- rawLines
                     | i <- [1 ..]
                     ]
 
