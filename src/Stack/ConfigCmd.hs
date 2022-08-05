@@ -4,17 +4,29 @@
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase          #-}
 
 -- | Make changes to project or global configuration.
 module Stack.ConfigCmd
-       (ConfigCmdSet(..)
+       (cfgCmdName
+
+       -- * config get
+       ,ConfigCmdGet(..)
+       ,configCmdGetParser
+       ,cfgCmdGet
+       ,cfgCmdGetName
+
+       -- * config set
+       ,ConfigCmdSet(..)
        ,configCmdSetParser
        ,cfgCmdSet
        ,cfgCmdSetName
+
+       -- * config env
        ,configCmdEnvParser
        ,cfgCmdEnv
        ,cfgCmdEnvName
-       ,cfgCmdName) where
+       ) where
 
 import           Stack.Prelude
 import           Data.Coerce (coerce)
@@ -39,12 +51,15 @@ import           Stack.Types.Resolver
 import           System.Environment (getEnvironment)
 import           Stack.YamlUpdate
 
+data ConfigCmdGet
+    = ConfigCmdGetResolver
+    | ConfigCmdGetSystemGhc CommandScope
+    | ConfigCmdGetInstallGhc CommandScope
+
 data ConfigCmdSet
     = ConfigCmdSetResolver (Unresolved AbstractResolver)
-    | ConfigCmdSetSystemGhc CommandScope
-                            Bool
-    | ConfigCmdSetInstallGhc CommandScope
-                             Bool
+    | ConfigCmdSetSystemGhc CommandScope Bool
+    | ConfigCmdSetInstallGhc CommandScope Bool
 
 data CommandScope
     = CommandScopeGlobal
@@ -52,6 +67,15 @@ data CommandScope
       --   typically at @~/.stack/config.yaml@.
     | CommandScopeProject
       -- ^ Apply changes to the project @stack.yaml@.
+
+cfgCmdGet
+    :: (HasConfig env, HasGHCVariant env)
+    => ConfigCmdGet -> RIO env ()
+cfgCmdGet cmd = do
+    logInfo $ cmd & \case
+        ConfigCmdGetResolver -> "CONFIG GET RESOLVER"
+        ConfigCmdGetSystemGhc{} -> "CONFIG GET SYSTEM-GHC"
+        ConfigCmdGetInstallGhc{} -> "CONFIG GET INSTALL-GHC"
 
 configCmdSetScope :: ConfigCmdSet -> CommandScope
 configCmdSetScope (ConfigCmdSetResolver _) = CommandScopeProject
@@ -120,11 +144,37 @@ cfgCmdSetOptionName (ConfigCmdSetInstallGhc _ _) = configMonoidInstallGHCName
 cfgCmdName :: String
 cfgCmdName = "config"
 
+cfgCmdGetName :: String
+cfgCmdGetName = "get"
+
 cfgCmdSetName :: String
 cfgCmdSetName = "set"
 
 cfgCmdEnvName :: String
 cfgCmdEnvName = "env"
+
+configCmdGetParser :: OA.Parser ConfigCmdGet
+configCmdGetParser =
+    OA.hsubparser $
+    mconcat
+        [ OA.command
+              "resolver"
+              (OA.info
+                   (OA.pure ConfigCmdGetResolver)
+                   (OA.progDesc "Gets the configured resolver."))
+        , OA.command
+              (T.unpack configMonoidSystemGHCName)
+              (OA.info
+                   (ConfigCmdGetSystemGhc <$> scopeFlag)
+                   (OA.progDesc
+                        "Gets whether stack should use a system GHC installation or not."))
+        , OA.command
+              (T.unpack configMonoidInstallGHCName)
+              (OA.info
+                   (ConfigCmdGetInstallGhc <$> scopeFlag)
+                   (OA.progDesc
+                        "Gets whether stack should automatically install GHC when necessary."))
+        ]
 
 configCmdSetParser :: OA.Parser ConfigCmdSet
 configCmdSetParser = OA.hsubparser $
