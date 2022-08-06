@@ -398,7 +398,7 @@ commandLineHandler currentDir progName isInterpreter = complicatedOptions
             (do
                addCommand' ConfigCmd.cfgCmdGetName
                           "Gets a field value from the project's stack.yaml"
-                          (withConfig YesReexec . cfgCmdGet)
+                          (withConfig NoReexec . cfgCmdGet)
                           configCmdGetParser
                addCommand' ConfigCmd.cfgCmdSetName
                           "Sets a key in YAML configuration file to value"
