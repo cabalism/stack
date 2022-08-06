@@ -108,11 +108,10 @@ cfgRead scope = do
 
 cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
 cfgCmdGet cmd = do
-    let scope = configCmdGetScope cmd
-    let logBool key maybeValue = logInfo $ display scope <> " " <> key <> ": " <>
+    let logBool maybeValue = logInfo $ 
             maybe "default" (display . T.toLower . T.pack . show) maybeValue
 
-    (configFilePath, yamlConfig) <- cfgRead scope
+    (configFilePath, yamlConfig) <- cfgRead (configCmdGetScope cmd)
     let parser = parseProjectAndConfigMonoid (parent configFilePath)
     case Yaml.parseEither parser yamlConfig of
         Left err -> logError . display $ T.pack err
@@ -120,13 +119,11 @@ cfgCmdGet cmd = do
             ProjectAndConfigMonoid project config <- liftIO res
             cmd & \case
                 ConfigCmdGetResolver ->
-                    logInfo $ "resolver: " <> display (projectResolver project)
-
+                    logInfo . display $ projectResolver project
                 ConfigCmdGetSystemGhc{} ->
-                    logBool "system-ghc" (getFirst $ configMonoidSystemGHC config)
-
+                    logBool (getFirst $ configMonoidSystemGHC config)
                 ConfigCmdGetInstallGhc{} ->
-                    logBool "install-ghc" (getFirstTrue $ configMonoidInstallGHC config)
+                    logBool (getFirstTrue $ configMonoidInstallGHC config)
 
 cfgCmdSet
     :: (HasConfig env, HasGHCVariant env)
