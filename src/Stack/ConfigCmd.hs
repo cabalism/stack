@@ -189,13 +189,13 @@ configCmdGetParser =
         , OA.command
               (T.unpack configMonoidSystemGHCName)
               (OA.info
-                   (ConfigCmdGetSystemGhc <$> scopeFlag)
+                   (ConfigCmdGetSystemGhc <$> getScopeFlag)
                    (OA.progDesc
                         "Gets whether stack should use a system GHC installation or not."))
         , OA.command
               (T.unpack configMonoidInstallGHCName)
               (OA.info
-                   (ConfigCmdGetInstallGhc <$> scopeFlag)
+                   (ConfigCmdGetInstallGhc <$> getScopeFlag)
                    (OA.progDesc
                         "Gets whether stack should automatically install GHC when necessary."))
         ]
@@ -217,25 +217,29 @@ configCmdSetParser =
         , OA.command
               (T.unpack configMonoidSystemGHCName)
               (OA.info
-                   (ConfigCmdSetSystemGhc <$> scopeFlag <*> boolArgument)
+                   (ConfigCmdSetSystemGhc <$> setScopeFlag <*> boolArgument)
                    (OA.progDesc
                         "Configure whether stack should use a system GHC installation or not."))
         , OA.command
               (T.unpack configMonoidInstallGHCName)
               (OA.info
-                   (ConfigCmdSetInstallGhc <$> scopeFlag <*> boolArgument)
+                   (ConfigCmdSetInstallGhc <$> setScopeFlag <*> boolArgument)
                    (OA.progDesc
                         "Configure whether stack should automatically install GHC when necessary."))
         ]
 
-scopeFlag :: OA.Parser CommandScope
-scopeFlag =
+getScopeFlag, setScopeFlag :: OA.Parser CommandScope
+getScopeFlag = scopeFlag "Get"
+setScopeFlag = scopeFlag "Modify"
+
+scopeFlag :: String -> OA.Parser CommandScope
+scopeFlag action =
     OA.flag
         CommandScopeProject
         CommandScopeGlobal
         (OA.long "global" <>
          OA.help
-             "Modify the global configuration (typically at \"~/.stack/config.yaml\") instead of the project stack.yaml.")
+             (action <> " the global configuration (typically at \"~/.stack/config.yaml\") instead of the project stack.yaml."))
 
 readBool :: OA.ReadM Bool
 readBool = do
