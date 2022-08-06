@@ -74,6 +74,10 @@ data CommandScope
     | CommandScopeProject
       -- ^ Apply changes to the project @stack.yaml@.
 
+instance Display CommandScope where
+    display CommandScopeProject = "project"
+    display CommandScopeGlobal = "global"
+
 configCmdGetScope :: ConfigCmdGet -> CommandScope
 configCmdGetScope ConfigCmdGetResolver = CommandScopeProject
 configCmdGetScope (ConfigCmdGetSystemGhc scope) = scope
@@ -104,30 +108,25 @@ cfgRead scope = do
 
 cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
 cfgCmdGet cmd = do
-    (configFilePath, yamlConfig) <- cfgRead (configCmdGetScope cmd)
+    let scope = configCmdGetScope cmd
+    let logBool key maybeValue = logInfo $ display scope <> " " <> key <> ": " <>
+            maybe "default" (display . T.toLower . T.pack . show) maybeValue
+
+    (configFilePath, yamlConfig) <- cfgRead scope
     let parser = parseProjectAndConfigMonoid (parent configFilePath)
     case Yaml.parseEither parser yamlConfig of
         Left err -> logError . display $ T.pack err
         Right (WithJSONWarnings res _warnings) -> do
             ProjectAndConfigMonoid project config <- liftIO res
             cmd & \case
-                ConfigCmdGetResolver -> do
+                ConfigCmdGetResolver ->
                     logInfo $ "resolver: " <> display (projectResolver project)
 
-                ConfigCmdGetSystemGhc CommandScopeProject ->
+                ConfigCmdGetSystemGhc{} ->
                     logBool "system-ghc" (getFirst $ configMonoidSystemGHC config)
 
-                ConfigCmdGetSystemGhc CommandScopeGlobal -> do
-                    logInfo "CONFIG GET SYSTEMGHC"
-
-                ConfigCmdGetInstallGhc CommandScopeProject ->
+                ConfigCmdGetInstallGhc{} ->
                     logBool "install-ghc" (getFirstTrue $ configMonoidInstallGHC config)
-
-                ConfigCmdGetInstallGhc CommandScopeGlobal -> do
-                    logInfo "CONFIG GET INSTALLGHC"
-    where
-        logBool key maybeValue = logInfo $ key <> " :" <>
-            maybe "default" (display . T.toLower . T.pack . show) maybeValue
 
 cfgCmdSet
     :: (HasConfig env, HasGHCVariant env)
