@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE TupleSections       #-}
 
 -- | Make changes to project or global configuration.
 module Stack.ConfigCmd
@@ -31,6 +32,8 @@ module Stack.ConfigCmd
 
 import           Stack.Prelude
 #if MIN_VERSION_aeson(2,0,0)
+import           Pantry.Internal.AesonExtended
+                 (FromJSON, WithJSONWarnings (WithJSONWarnings))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 #endif
@@ -71,27 +74,21 @@ data CommandScope
     | CommandScopeProject
       -- ^ Apply changes to the project @stack.yaml@.
 
-cfgCmdGet
-    :: (HasConfig env, HasGHCVariant env)
-    => ConfigCmdGet -> RIO env ()
-cfgCmdGet cmd = do
-    logInfo $ cmd & \case
-        ConfigCmdGetResolver -> "CONFIG GET RESOLVER"
-        ConfigCmdGetSystemGhc{} -> "CONFIG GET SYSTEM-GHC"
-        ConfigCmdGetInstallGhc{} -> "CONFIG GET INSTALL-GHC"
+configCmdGetScope :: ConfigCmdGet -> CommandScope
+configCmdGetScope ConfigCmdGetResolver = CommandScopeProject
+configCmdGetScope (ConfigCmdGetSystemGhc scope) = scope
+configCmdGetScope (ConfigCmdGetInstallGhc scope) = scope
 
 configCmdSetScope :: ConfigCmdSet -> CommandScope
 configCmdSetScope (ConfigCmdSetResolver _) = CommandScopeProject
 configCmdSetScope (ConfigCmdSetSystemGhc scope _) = scope
 configCmdSetScope (ConfigCmdSetInstallGhc scope _) = scope
 
-cfgCmdSet
-    :: (HasConfig env, HasGHCVariant env)
-    => ConfigCmdSet -> RIO env ()
-cfgCmdSet cmd = do
+cfgRead :: (HasConfig s, FromJSON a) => CommandScope -> RIO s (Path Abs File, a)
+cfgRead scope = do
     conf <- view configL
     configFilePath <-
-             case configCmdSetScope cmd of
+             case scope of
                  CommandScopeProject -> do
                      mstackYamlOption <- view $ globalOptsL.to globalStackYaml
                      mstackYaml <- getProjectConfig mstackYamlOption
@@ -100,9 +97,34 @@ cfgCmdSet cmd = do
                          PCGlobalProject -> liftM (</> stackDotYaml) (getImplicitGlobalProjectDir conf)
                          PCNoProject _extraDeps -> throwString "config command used when no project configuration available" -- maybe modify the ~/.stack/config.yaml file instead?
                  CommandScopeGlobal -> return (configUserConfigPath conf)
+
     -- We don't need to worry about checking for a valid yaml here
-    (config :: Yaml.Object) <-
-        liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>= either throwM return
+    liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>=
+        either throwM (return . (configFilePath,))
+
+cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
+cfgCmdGet cmd = do
+    (configFilePath, yamlConfig) <- cfgRead (configCmdGetScope cmd)
+    let parser = parseProjectAndConfigMonoid (parent configFilePath)
+    case Yaml.parseEither parser yamlConfig of
+        Left err -> logError . display $ T.pack err
+        Right (WithJSONWarnings res _warnings) -> do
+            ProjectAndConfigMonoid project _config <- liftIO res
+            cmd & \case
+                ConfigCmdGetResolver -> do
+                    logInfo $ "resolver: " <> display (projectResolver project)
+
+                ConfigCmdGetSystemGhc{} -> do
+                    logInfo "CONFIG GET SYSTEMGHC"
+
+                ConfigCmdGetInstallGhc{} -> do
+                    logInfo "CONFIG GET INSTALLGHC"
+
+cfgCmdSet
+    :: (HasConfig env, HasGHCVariant env)
+    => ConfigCmdSet -> RIO env ()
+cfgCmdSet cmd = do
+    (configFilePath, config) <- cfgRead (configCmdSetScope cmd)
     newValue <- cfgCmdSetValue (parent configFilePath) cmd
     let cmdKey = cfgCmdSetOptionName cmd
 #if MIN_VERSION_aeson(2,0,0)
