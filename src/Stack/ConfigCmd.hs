@@ -115,22 +115,19 @@ cfgCmdGet cmd = do
                     logInfo $ "resolver: " <> display (projectResolver project)
 
                 ConfigCmdGetSystemGhc CommandScopeProject ->
-                    logInfo $ "system-ghc: " <> maybe
-                        "default"
-                        (display . T.toLower . T.pack . show)
-                        (getFirst $ configMonoidSystemGHC config)
+                    logBool "system-ghc" (getFirst $ configMonoidSystemGHC config)
 
                 ConfigCmdGetSystemGhc CommandScopeGlobal -> do
                     logInfo "CONFIG GET SYSTEMGHC"
 
                 ConfigCmdGetInstallGhc CommandScopeProject ->
-                    logInfo $ "install-ghc: " <> maybe
-                        "default"
-                        (display . T.toLower . T.pack . show)
-                        (getFirstTrue $ configMonoidInstallGHC config)
+                    logBool "install-ghc" (getFirstTrue $ configMonoidInstallGHC config)
 
                 ConfigCmdGetInstallGhc CommandScopeGlobal -> do
                     logInfo "CONFIG GET INSTALLGHC"
+    where
+        logBool key maybeValue = logInfo $ key <> " :" <>
+            maybe "default" (display . T.toLower . T.pack . show) maybeValue
 
 cfgCmdSet
     :: (HasConfig env, HasGHCVariant env)
