@@ -109,15 +109,27 @@ cfgCmdGet cmd = do
     case Yaml.parseEither parser yamlConfig of
         Left err -> logError . display $ T.pack err
         Right (WithJSONWarnings res _warnings) -> do
-            ProjectAndConfigMonoid project _config <- liftIO res
+            ProjectAndConfigMonoid project config <- liftIO res
             cmd & \case
                 ConfigCmdGetResolver -> do
                     logInfo $ "resolver: " <> display (projectResolver project)
 
-                ConfigCmdGetSystemGhc{} -> do
+                ConfigCmdGetSystemGhc CommandScopeProject ->
+                    logInfo $ "system-ghc: " <> maybe
+                        "default"
+                        (display . T.toLower . T.pack . show)
+                        (getFirst $ configMonoidSystemGHC config)
+
+                ConfigCmdGetSystemGhc CommandScopeGlobal -> do
                     logInfo "CONFIG GET SYSTEMGHC"
 
-                ConfigCmdGetInstallGhc{} -> do
+                ConfigCmdGetInstallGhc CommandScopeProject ->
+                    logInfo $ "install-ghc: " <> maybe
+                        "default"
+                        (display . T.toLower . T.pack . show)
+                        (getFirstTrue $ configMonoidInstallGHC config)
+
+                ConfigCmdGetInstallGhc CommandScopeGlobal -> do
                     logInfo "CONFIG GET INSTALLGHC"
 
 cfgCmdSet
