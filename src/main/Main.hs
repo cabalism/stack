@@ -394,16 +394,20 @@ commandLineHandler currentDir progName isInterpreter = complicatedOptions
             ConfigCmd.cfgCmdName
             "Subcommands for accessing and modifying configuration values"
             (do
-               addCommand' ConfigCmd.cfgCmdListName
-                          "Lists (or dumps) the project's configuration"
-                          (withConfig NoReexec . cfgCmdList)
-                          configCmdListParser
+               addCommand' ConfigCmd.cfgCmdDumpProjectName
+                          "Dump project related configuration"
+                          (withConfig NoReexec . cfgCmdDumpProject)
+                          configCmdDumpProjectParser
+               addCommand' ConfigCmd.cfgCmdDumpStackName
+                          "Dump stack operation related configuration"
+                          (withConfig NoReexec . cfgCmdDumpStack)
+                          configCmdDumpStackParser
                addCommand' ConfigCmd.cfgCmdGetName
-                          "Gets a field value from the project's stack.yaml"
+                          "Get the current value of a settable field of configuration"
                           (withConfig NoReexec . cfgCmdGet)
                           configCmdGetParser
                addCommand' ConfigCmd.cfgCmdSetName
-                          "Sets a field in the project's stack.yaml to value"
+                          "A very restricted subset of configuration can be set with this command"
                           (withConfig NoReexec . cfgCmdSet)
                           configCmdSetParser
                addCommand' ConfigCmd.cfgCmdEnvName

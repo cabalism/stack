@@ -12,11 +12,14 @@
 module Stack.ConfigCmd
        (cfgCmdName
 
-       -- * config list
-       ,ConfigCmdList(..)
-       ,configCmdListParser
-       ,cfgCmdList
-       ,cfgCmdListName
+       -- * config dump
+       ,ConfigCmdDump(..)
+       ,configCmdDumpProjectParser
+       ,configCmdDumpStackParser
+       ,cfgCmdDumpProject
+       ,cfgCmdDumpStack
+       ,cfgCmdDumpProjectName
+       ,cfgCmdDumpStackName
 
        -- * config get
        ,ConfigCmdGet(..)
@@ -64,30 +67,48 @@ import           Stack.Types.Config
 import           Stack.Types.Resolver
 import           System.Environment (getEnvironment)
 
-data ConfigListFormat = ConfigListYaml | ConfigListJson
+data ConfigDumpFormat = ConfigDumpYaml | ConfigDumpJson
 
-newtype ConfigCmdList = ConfigCmdList ConfigListFormat
+-- | Dump configuration settings that apply to either the project or the
+-- opertion of stack and get these from either the project's setting location or
+-- the global location, from @stack.yaml@ or from @~/.stack/config.yaml@.
+data ConfigCmdDump a where
+    ConfigCmdDumpProject :: CommandScope -> ConfigDumpFormat -> ConfigCmdDump DumpScopeProject
+    ConfigCmdDumpStack   :: CommandScope -> ConfigDumpFormat -> ConfigCmdDump DumpScopeStack
 
+-- | Get configuration items that can be individually set by `stack config set`.
 data ConfigCmdGet
     = ConfigCmdGetResolver
     | ConfigCmdGetSystemGhc CommandScope
     | ConfigCmdGetInstallGhc CommandScope
 
+-- | Set the resolver for the project or set configuration aronud GHC at project
+-- or global scope.
 data ConfigCmdSet
     = ConfigCmdSetResolver (Unresolved AbstractResolver)
     | ConfigCmdSetSystemGhc CommandScope Bool
     | ConfigCmdSetInstallGhc CommandScope Bool
 
+-- | Settings that apply to a project.
+data DumpScopeProject
+-- | Settings that apply to the operation of stack.
+data DumpScopeStack
+
+-- | Where to get the configuration settings from.
 data CommandScope
     = CommandScopeGlobal
-      -- ^ Apply changes to the global configuration,
-      --   typically at @~/.stack/config.yaml@.
+      -- ^ Apply changes to or get settings from the global configuration,
+      -- typically at @~/.stack/config.yaml@.
     | CommandScopeProject
-      -- ^ Apply changes to the project @stack.yaml@.
+      -- ^ Apply changes to or get settings from the project @stack.yaml@.
 
 instance Display CommandScope where
     display CommandScopeProject = "project"
     display CommandScopeGlobal = "global"
+
+configCmdDumpScope :: ConfigCmdDump a -> CommandScope
+configCmdDumpScope (ConfigCmdDumpProject scope _) = scope
+configCmdDumpScope (ConfigCmdDumpStack scope _) = scope
 
 configCmdGetScope :: ConfigCmdGet -> CommandScope
 configCmdGetScope ConfigCmdGetResolver = CommandScopeProject
@@ -117,19 +138,37 @@ cfgRead scope = do
     liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>=
         either throwM (return . (configFilePath,))
 
-cfgCmdList :: (HasConfig env, HasLogFunc env) => ConfigCmdList -> RIO env ()
-cfgCmdList cmd = do
-    (configFilePath, yamlConfig) <- cfgRead CommandScopeProject
+cfgCmdDumpProject :: (HasConfig env, HasLogFunc env) => ConfigCmdDump DumpScopeProject -> RIO env ()
+cfgCmdDumpProject cmd = do
+    (configFilePath, yamlConfig) <- cfgRead (configCmdDumpScope cmd)
     let parser = parseProjectAndConfigMonoid (parent configFilePath)
     case Yaml.parseEither parser yamlConfig of
         Left err -> logError . display $ T.pack err
         Right (WithJSONWarnings res _warnings) -> do
             ProjectAndConfigMonoid project _ <- liftIO res
             cmd & \case
-                    ConfigCmdList ConfigListYaml -> Yaml.encode project
-                    ConfigCmdList ConfigListJson -> toStrictBytes $ Aeson.encode project
+                    ConfigCmdDumpProject _ ConfigDumpYaml -> Yaml.encode project
+                    ConfigCmdDumpProject _ ConfigDumpJson -> toStrictBytes $ Aeson.encode project
                 & decodeUtf8' 
                 & either throwM (logInfo . display)
+
+cfgCmdDumpStack :: (HasConfig env, HasLogFunc env) => ConfigCmdDump DumpScopeStack -> RIO env ()
+cfgCmdDumpStack cmd = do
+    (configFilePath, yamlConfig) <- cfgRead (configCmdDumpScope cmd)
+    let parser = parseProjectAndConfigMonoid (parent configFilePath)
+    case Yaml.parseEither parser yamlConfig of
+        Left err -> logError . display $ T.pack err
+        Right (WithJSONWarnings res _warnings) -> do
+            ProjectAndConfigMonoid _ config <- liftIO res
+            configMonoidSystemGHC config
+                & getFirst
+                & maybe
+                    (logInfo "No relevant configuration")
+                    (\config' -> cmd & \case
+                            ConfigCmdDumpStack _ ConfigDumpYaml -> Yaml.encode config'
+                            ConfigCmdDumpStack _ ConfigDumpJson -> toStrictBytes $ Aeson.encode config'
+                        & decodeUtf8' 
+                        & either throwM (logInfo . display))
 
 cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
 cfgCmdGet cmd = do
@@ -190,19 +229,27 @@ cfgCmdSetOptionName (ConfigCmdSetResolver _) = "resolver"
 cfgCmdSetOptionName (ConfigCmdSetSystemGhc _ _) = configMonoidSystemGHCName
 cfgCmdSetOptionName (ConfigCmdSetInstallGhc _ _) = configMonoidInstallGHCName
 
-cfgCmdName, cfgCmdListName, cfgCmdGetName, cfgCmdSetName, cfgCmdEnvName :: String
+cfgCmdName, cfgCmdGetName, cfgCmdSetName, cfgCmdEnvName :: String
+cfgCmdDumpProjectName, cfgCmdDumpStackName :: String
 cfgCmdName = "config"
-cfgCmdListName = "list"
+cfgCmdDumpProjectName = "dump-project"
+cfgCmdDumpStackName = "dump-stack"
 cfgCmdGetName = "get"
 cfgCmdSetName = "set"
 cfgCmdEnvName = "env"
 
-configCmdListParser :: OA.Parser ConfigCmdList
-configCmdListParser = ConfigCmdList <$>
+configCmdDumpProjectParser :: OA.Parser (ConfigCmdDump DumpScopeProject)
+configCmdDumpProjectParser = ConfigCmdDumpProject <$> getScopeFlag <*> dumpFormatFlag
+
+configCmdDumpStackParser :: OA.Parser (ConfigCmdDump DumpScopeStack)
+configCmdDumpStackParser = ConfigCmdDumpStack <$> getScopeFlag <*> dumpFormatFlag
+
+dumpFormatFlag :: OA.Parser ConfigDumpFormat
+dumpFormatFlag =
     OA.flag
-        ConfigListYaml
-        ConfigListJson
-            (OA.long "json" <> OA.help "Dump the configuration as JSON")
+        ConfigDumpYaml
+        ConfigDumpJson
+            (OA.long "json" <> OA.help "Dump the configuration as JSON instead of as YAML")
 
 configCmdGetParser :: OA.Parser ConfigCmdGet
 configCmdGetParser =
@@ -256,7 +303,7 @@ configCmdSetParser =
         ]
 
 getScopeFlag, setScopeFlag :: OA.Parser CommandScope
-getScopeFlag = scopeFlag "Get"
+getScopeFlag = scopeFlag "From"
 setScopeFlag = scopeFlag "Modify"
 
 scopeFlag :: String -> OA.Parser CommandScope
