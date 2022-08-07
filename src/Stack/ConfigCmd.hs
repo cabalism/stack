@@ -12,6 +12,12 @@
 module Stack.ConfigCmd
        (cfgCmdName
 
+       -- * config list
+       ,ConfigCmdList(..)
+       ,configCmdListParser
+       ,cfgCmdList
+       ,cfgCmdListName
+
        -- * config get
        ,ConfigCmdGet(..)
        ,configCmdGetParser
@@ -34,6 +40,7 @@ import           Stack.Prelude
 #if MIN_VERSION_aeson(2,0,0)
 import           Pantry.Internal.AesonExtended
                  (FromJSON, WithJSONWarnings (WithJSONWarnings))
+import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 #endif
@@ -56,6 +63,10 @@ import           Stack.Constants
 import           Stack.Types.Config
 import           Stack.Types.Resolver
 import           System.Environment (getEnvironment)
+
+data ConfigListFormat = ConfigListYaml | ConfigListJson
+
+newtype ConfigCmdList = ConfigCmdList ConfigListFormat
 
 data ConfigCmdGet
     = ConfigCmdGetResolver
@@ -105,6 +116,21 @@ cfgRead scope = do
     -- We don't need to worry about checking for a valid yaml here
     liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>=
         either throwM (return . (configFilePath,))
+
+cfgCmdList :: (HasConfig env, HasLogFunc env) => ConfigCmdList -> RIO env ()
+cfgCmdList cmd = do
+    (configFilePath, yamlConfig) <- cfgRead CommandScopeProject
+    let parser = parseProjectAndConfigMonoid (parent configFilePath)
+    case Yaml.parseEither parser yamlConfig of
+        Left err -> logError . display $ T.pack err
+        Right (WithJSONWarnings res _warnings) -> do
+            ProjectAndConfigMonoid project _ <- liftIO res
+            cmd & \case
+                ConfigCmdList ConfigListYaml -> do
+                    either throwM (logInfo . display) (decodeUtf8' $ Yaml.encode project)
+
+                ConfigCmdList ConfigListJson -> do
+                    either throwM (logInfo . display) (decodeUtf8' . toStrictBytes $ Aeson.encode project)
 
 cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
 cfgCmdGet cmd = do
@@ -165,17 +191,19 @@ cfgCmdSetOptionName (ConfigCmdSetResolver _) = "resolver"
 cfgCmdSetOptionName (ConfigCmdSetSystemGhc _ _) = configMonoidSystemGHCName
 cfgCmdSetOptionName (ConfigCmdSetInstallGhc _ _) = configMonoidInstallGHCName
 
-cfgCmdName :: String
+cfgCmdName, cfgCmdListName, cfgCmdGetName, cfgCmdSetName, cfgCmdEnvName :: String
 cfgCmdName = "config"
-
-cfgCmdGetName :: String
+cfgCmdListName = "list"
 cfgCmdGetName = "get"
-
-cfgCmdSetName :: String
 cfgCmdSetName = "set"
-
-cfgCmdEnvName :: String
 cfgCmdEnvName = "env"
+
+configCmdListParser :: OA.Parser ConfigCmdList
+configCmdListParser = ConfigCmdList <$>
+    OA.flag
+        ConfigListYaml
+        ConfigListJson
+            (OA.long "json" <> OA.help "Dump the configuration as JSON")
 
 configCmdGetParser :: OA.Parser ConfigCmdGet
 configCmdGetParser =
