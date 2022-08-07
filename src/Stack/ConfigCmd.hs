@@ -1,3 +1,6 @@
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DeriveAnyClass      #-}
 {-# LANGUAGE NoImplicitPrelude   #-}
 {-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE CPP                 #-}
@@ -7,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE RecordWildCards     #-}
 
 -- | Make changes to project or global configuration.
 module Stack.ConfigCmd
@@ -42,7 +46,7 @@ module Stack.ConfigCmd
 import           Stack.Prelude
 #if MIN_VERSION_aeson(2,0,0)
 import           Pantry.Internal.AesonExtended
-                 (FromJSON, WithJSONWarnings (WithJSONWarnings))
+                 (ToJSON(..), FromJSON, (.=), WithJSONWarnings (WithJSONWarnings), object)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -124,64 +128,61 @@ encodeDumpProject :: ConfigCmdDump DumpScopeProject -> (Project -> ByteString)
 encodeDumpProject (ConfigCmdDumpProject _ ConfigDumpYaml) = Yaml.encode
 encodeDumpProject (ConfigCmdDumpProject _ ConfigDumpJson) = toStrictBytes . Aeson.encode
 
-encodeDumpStack :: ConfigCmdDump DumpScopeStack -> (Bool -> ByteString)
-encodeDumpStack (ConfigCmdDumpStack _ ConfigDumpYaml) = Yaml.encode
-encodeDumpStack (ConfigCmdDumpStack _ ConfigDumpJson) = toStrictBytes . Aeson.encode
+encodeDumpStack :: ToJSON a => (Config -> a) -> ConfigCmdDump DumpScopeStack -> (Config -> ByteString)
+encodeDumpStack f (ConfigCmdDumpStack _ ConfigDumpYaml) = Yaml.encode . f
+encodeDumpStack f (ConfigCmdDumpStack _ ConfigDumpJson) = toStrictBytes . Aeson.encode . f
 
-cfgRead :: (HasConfig s, FromJSON a) => CommandScope -> RIO s (Path Abs File, a)
-cfgRead scope = do
-    conf <- view configL
-    configFilePath <-
-             case scope of
-                 CommandScopeProject -> do
-                     mstackYamlOption <- view $ globalOptsL.to globalStackYaml
-                     mstackYaml <- getProjectConfig mstackYamlOption
-                     case mstackYaml of
-                         PCProject stackYaml -> return stackYaml
-                         PCGlobalProject -> liftM (</> stackDotYaml) (getImplicitGlobalProjectDir conf)
-                         PCNoProject _extraDeps -> throwString "config command used when no project configuration available" -- maybe modify the ~/.stack/config.yaml file instead?
-                 CommandScopeGlobal -> return (configUserConfigPath conf)
-
-    -- We don't need to worry about checking for a valid yaml here
-    liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>=
-        either throwM (return . (configFilePath,))
+cfgReadProject :: (HasConfig env, HasLogFunc env) => CommandScope -> RIO env (Maybe Project)
+cfgReadProject scope = do
+    (configFilePath, yamlConfig) <- cfgRead scope
+    let parser = parseProjectAndConfigMonoid (parent configFilePath)
+    case Yaml.parseEither parser yamlConfig of
+        Left err -> do
+            logError . display $ T.pack err
+            return Nothing
+        Right (WithJSONWarnings res _warnings) -> do
+            ProjectAndConfigMonoid project _ <- liftIO res
+            return $ Just project
 
 cfgCmdDumpProject :: (HasConfig env, HasLogFunc env) => ConfigCmdDump DumpScopeProject -> RIO env ()
 cfgCmdDumpProject cmd = do
-    (configFilePath, yamlConfig) <- cfgRead (configCmdDumpScope cmd)
-    let parser = parseProjectAndConfigMonoid (parent configFilePath)
-    case Yaml.parseEither parser yamlConfig of
-        Left err -> logError . display $ T.pack err
-        Right (WithJSONWarnings res _warnings) -> do
-            ProjectAndConfigMonoid project _ <- liftIO res
+    project <- cfgReadProject (configCmdDumpScope cmd)
+    project & maybe (logError "Couldn't find project") (\p ->
+        encodeDumpProject cmd p
+        & decodeUtf8'
+        & either throwM (logInfo . display))
 
-            project
-                & encodeDumpProject cmd
-                & decodeUtf8' 
-                & either throwM (logInfo . display)
+data DumpStack =
+    DumpStack
+        { dsInstallGHC :: !Bool
+        , dsSystemGHC  :: !Bool
+        }
+
+instance ToJSON DumpStack where
+    toJSON DumpStack{..} = object
+        [ "install-GHC" .= toJSON dsInstallGHC
+        , "system-GHC" .= toJSON dsSystemGHC
+        ]
 
 cfgCmdDumpStack :: (HasConfig env, HasLogFunc env) => ConfigCmdDump DumpScopeStack -> RIO env ()
-cfgCmdDumpStack cmd = do
-    (configFilePath, yamlConfig) <- cfgRead (configCmdDumpScope cmd)
-    let parser = parseProjectAndConfigMonoid (parent configFilePath)
-    case Yaml.parseEither parser yamlConfig of
-        Left err -> logError . display $ T.pack err
-        Right (WithJSONWarnings res _warnings) -> do
-            ProjectAndConfigMonoid _ config <- liftIO res
+cfgCmdDumpStack =
+    cfgCmdDumpStack' (\Config{..} ->
+        DumpStack
+            { dsInstallGHC = configInstallGHC
+            , dsSystemGHC = configSystemGHC
+            })
 
-            configMonoidSystemGHC config
-                & getFirst
-                & maybe
-                    (logInfo "No relevant configuration")
-                    (\config' ->
-                        config'
-                            & encodeDumpStack cmd
-                            & decodeUtf8' 
-                            & either throwM (logInfo . display))
+cfgCmdDumpStack' :: (ToJSON a, HasConfig env, HasLogFunc env) => (Config -> a) -> ConfigCmdDump DumpScopeStack -> RIO env ()
+cfgCmdDumpStack' f cmd = do
+    conf <- view configL
+    conf
+        & encodeDumpStack f cmd
+        & decodeUtf8'
+        & either throwM (logInfo . display)
 
 cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
 cfgCmdGet cmd = do
-    let logBool maybeValue = logInfo $ 
+    let logBool maybeValue = logInfo $
             maybe "default" (display . T.toLower . T.pack . show) maybeValue
 
     (configFilePath, yamlConfig) <- cfgRead (configCmdGetScope cmd)
@@ -198,9 +199,29 @@ cfgCmdGet cmd = do
                 ConfigCmdGetInstallGhc{} ->
                     logBool (getFirstTrue $ configMonoidInstallGHC config)
 
-cfgCmdSet
-    :: (HasConfig env, HasGHCVariant env)
-    => ConfigCmdSet -> RIO env ()
+cfgRead
+    :: (HasConfig s, FromJSON a)
+    => CommandScope -> RIO s (Path Abs File, a)
+cfgRead scope = do
+    conf <- view configL
+    configFilePath <-
+             case scope of
+                 CommandScopeProject -> do
+                     mstackYamlOption <- view $ globalOptsL.to globalStackYaml
+                     mstackYaml <- getProjectConfig mstackYamlOption
+                     case mstackYaml of
+                         PCProject stackYaml -> return stackYaml
+                         PCGlobalProject -> liftM (</> stackDotYaml) (getImplicitGlobalProjectDir conf)
+                         PCNoProject _extraDeps ->
+                            -- REVIEW: Maybe modify the ~/.stack/config.yaml file instead?
+                            throwString "config command used when no project configuration available"
+                 CommandScopeGlobal -> return (configUserConfigPath conf)
+
+    -- We don't need to worry about checking for a valid yaml here
+    liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>=
+        either throwM (return . (configFilePath,))
+
+cfgCmdSet :: (HasConfig env, HasGHCVariant env) => ConfigCmdSet -> RIO env ()
 cfgCmdSet cmd = do
     (configFilePath, config) <- cfgRead (configCmdSetScope cmd)
     newValue <- cfgCmdSetValue (parent configFilePath) cmd
