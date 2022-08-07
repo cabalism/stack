@@ -126,11 +126,10 @@ cfgCmdList cmd = do
         Right (WithJSONWarnings res _warnings) -> do
             ProjectAndConfigMonoid project _ <- liftIO res
             cmd & \case
-                ConfigCmdList ConfigListYaml -> do
-                    either throwM (logInfo . display) (decodeUtf8' $ Yaml.encode project)
-
-                ConfigCmdList ConfigListJson -> do
-                    either throwM (logInfo . display) (decodeUtf8' . toStrictBytes $ Aeson.encode project)
+                    ConfigCmdList ConfigListYaml -> Yaml.encode project
+                    ConfigCmdList ConfigListJson -> toStrictBytes $ Aeson.encode project
+                & decodeUtf8' 
+                & either throwM (logInfo . display)
 
 cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
 cfgCmdGet cmd = do
