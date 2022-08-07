@@ -120,6 +120,14 @@ configCmdSetScope (ConfigCmdSetResolver _) = CommandScopeProject
 configCmdSetScope (ConfigCmdSetSystemGhc scope _) = scope
 configCmdSetScope (ConfigCmdSetInstallGhc scope _) = scope
 
+encodeDumpProject :: ConfigCmdDump DumpScopeProject -> (Project -> ByteString)
+encodeDumpProject (ConfigCmdDumpProject _ ConfigDumpYaml) = Yaml.encode
+encodeDumpProject (ConfigCmdDumpProject _ ConfigDumpJson) = toStrictBytes . Aeson.encode
+
+encodeDumpStack :: ConfigCmdDump DumpScopeStack -> (Bool -> ByteString)
+encodeDumpStack (ConfigCmdDumpStack _ ConfigDumpYaml) = Yaml.encode
+encodeDumpStack (ConfigCmdDumpStack _ ConfigDumpJson) = toStrictBytes . Aeson.encode
+
 cfgRead :: (HasConfig s, FromJSON a) => CommandScope -> RIO s (Path Abs File, a)
 cfgRead scope = do
     conf <- view configL
@@ -146,9 +154,9 @@ cfgCmdDumpProject cmd = do
         Left err -> logError . display $ T.pack err
         Right (WithJSONWarnings res _warnings) -> do
             ProjectAndConfigMonoid project _ <- liftIO res
-            cmd & \case
-                    ConfigCmdDumpProject _ ConfigDumpYaml -> Yaml.encode project
-                    ConfigCmdDumpProject _ ConfigDumpJson -> toStrictBytes $ Aeson.encode project
+
+            project
+                & encodeDumpProject cmd
                 & decodeUtf8' 
                 & either throwM (logInfo . display)
 
@@ -160,15 +168,16 @@ cfgCmdDumpStack cmd = do
         Left err -> logError . display $ T.pack err
         Right (WithJSONWarnings res _warnings) -> do
             ProjectAndConfigMonoid _ config <- liftIO res
+
             configMonoidSystemGHC config
                 & getFirst
                 & maybe
                     (logInfo "No relevant configuration")
-                    (\config' -> cmd & \case
-                            ConfigCmdDumpStack _ ConfigDumpYaml -> Yaml.encode config'
-                            ConfigCmdDumpStack _ ConfigDumpJson -> toStrictBytes $ Aeson.encode config'
-                        & decodeUtf8' 
-                        & either throwM (logInfo . display))
+                    (\config' ->
+                        config'
+                            & encodeDumpStack cmd
+                            & decodeUtf8' 
+                            & either throwM (logInfo . display))
 
 cfgCmdGet :: (HasConfig env, HasLogFunc env) => ConfigCmdGet -> RIO env ()
 cfgCmdGet cmd = do
