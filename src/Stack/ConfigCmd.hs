@@ -79,7 +79,7 @@ data ConfigCmdDumpProject = ConfigCmdDumpProject CommandScope ConfigDumpFormat
 
 -- | Dump configuration around the opertion of stack and get these from either
 -- the the global location, from @stack.yaml@ or from @~/.stack/config.yaml@.
-data ConfigCmdDumpStack = ConfigCmdDumpStack CommandScope ConfigDumpFormat
+data ConfigCmdDumpStack = ConfigCmdDumpStack DumpStackScope ConfigDumpFormat
 
 -- | Get configuration items that can be individually set by `stack config set`.
 data ConfigCmdGet
@@ -102,6 +102,16 @@ data CommandScope
     | CommandScopeProject
       -- ^ Apply changes to or get settings from the project @stack.yaml@.
 
+-- | Where to get the configuration settings from.
+data DumpStackScope
+    = DumpStackScopeEffective
+      -- ^ The effective scope.
+    | DumpStackScopeGlobal
+      -- ^ Apply changes to or get settings from the global configuration,
+      -- typically at @~/.stack/config.yaml@.
+    | DumpStackScopeProject
+      -- ^ Apply changes to or get settings from the project @stack.yaml@.
+
 instance Display CommandScope where
     display CommandScopeProject = "project"
     display CommandScopeGlobal = "global"
@@ -119,13 +129,17 @@ configCmdSetScope (ConfigCmdSetResolver _) = CommandScopeProject
 configCmdSetScope (ConfigCmdSetSystemGhc scope _) = scope
 configCmdSetScope (ConfigCmdSetInstallGhc scope _) = scope
 
-encodeDumpProject :: ConfigCmdDumpProject -> (Project -> ByteString)
-encodeDumpProject (ConfigCmdDumpProject _ ConfigDumpYaml) = Yaml.encode
-encodeDumpProject (ConfigCmdDumpProject _ ConfigDumpJson) = toStrictBytes . Aeson.encode
+encodeDumpProject :: ConfigDumpFormat -> (Project -> ByteString)
+encodeDumpProject ConfigDumpYaml = Yaml.encode
+encodeDumpProject ConfigDumpJson = toStrictBytes . Aeson.encode
 
-encodeDumpStack :: ToJSON a => (Config -> a) -> ConfigCmdDumpStack -> (Config -> ByteString)
-encodeDumpStack f (ConfigCmdDumpStack _ ConfigDumpYaml) = Yaml.encode . f
-encodeDumpStack f (ConfigCmdDumpStack _ ConfigDumpJson) = toStrictBytes . Aeson.encode . f
+encodeDumpStackBy :: ToJSON a => (Config -> a) -> ConfigCmdDumpStack -> (Config -> ByteString)
+encodeDumpStackBy f (ConfigCmdDumpStack _ ConfigDumpYaml) = Yaml.encode . f
+encodeDumpStackBy f (ConfigCmdDumpStack _ ConfigDumpJson) = toStrictBytes . Aeson.encode . f
+
+encodeDumpStack :: ConfigDumpFormat -> (DumpStack -> ByteString)
+encodeDumpStack ConfigDumpYaml = Yaml.encode
+encodeDumpStack ConfigDumpJson = toStrictBytes . Aeson.encode
 
 cfgReadProject :: (HasConfig env, HasLogFunc env) => CommandScope -> RIO env (Maybe Project)
 cfgReadProject scope = do
@@ -140,10 +154,10 @@ cfgReadProject scope = do
             return $ Just project
 
 cfgCmdDumpProject :: (HasConfig env, HasLogFunc env) => ConfigCmdDumpProject -> RIO env ()
-cfgCmdDumpProject cmd = do
+cfgCmdDumpProject cmd@(ConfigCmdDumpProject _ dumpFormat) = do
     project <- cfgReadProject (configCmdDumpProjectScope cmd)
     project & maybe (logError "Couldn't find project") (\p ->
-        encodeDumpProject cmd p
+        encodeDumpProject dumpFormat p
         & decodeUtf8'
         & either throwM (logInfo . display))
 
@@ -160,18 +174,44 @@ instance ToJSON DumpStack where
         ]
 
 cfgCmdDumpStack :: (HasConfig env, HasLogFunc env) => ConfigCmdDumpStack -> RIO env ()
-cfgCmdDumpStack =
-    cfgCmdDumpStack' (\Config{..} ->
-        DumpStack
-            { dsInstallGHC = configInstallGHC
-            , dsSystemGHC = configSystemGHC
-            })
+cfgCmdDumpStack cmd@(ConfigCmdDumpStack scope dumpFormat)
+    | DumpStackScopeEffective <- scope = cfgCmdDumpStackEffective cmd
+    | DumpStackScopeProject <- scope = cfgDumpStack CommandScopeProject dumpFormat
+    | DumpStackScopeGlobal <- scope = cfgDumpStack CommandScopeGlobal dumpFormat
 
-cfgCmdDumpStack' :: (ToJSON a, HasConfig env, HasLogFunc env) => (Config -> a) -> ConfigCmdDumpStack -> RIO env ()
-cfgCmdDumpStack' f cmd = do
+cfgDumpStack
+    :: (HasConfig env, HasLogFunc env)
+    => CommandScope -> ConfigDumpFormat -> RIO env ()
+cfgDumpStack scope dumpFormat = do
+    (configFilePath, yamlConfig) <- cfgRead scope
+    let parser = parseProjectAndConfigMonoid (parent configFilePath)
+    case Yaml.parseEither parser yamlConfig of
+        Left err -> logError . display $ T.pack err
+        Right (WithJSONWarnings res _warnings) -> do
+            ProjectAndConfigMonoid _ config <- liftIO res
+            let systemGHC = getFirst $ configMonoidSystemGHC config
+            let installGHC = getFirstTrue $ configMonoidInstallGHC config
+            
+            case (systemGHC, installGHC) of
+                (Just s, Just i) -> do
+                    DumpStack{dsSystemGHC = s, dsInstallGHC = i}
+                        & encodeDumpStack dumpFormat
+                        & decodeUtf8'
+                        & either throwM (logInfo . display)
+
+                _ -> logError "Couldn't get configuration."
+
+cfgCmdDumpStackEffective
+    :: (HasConfig env, HasLogFunc env) => ConfigCmdDumpStack -> RIO env ()
+cfgCmdDumpStackEffective cmd = do
     conf <- view configL
+    let f Config{..} =
+            DumpStack
+                { dsInstallGHC = configInstallGHC
+                , dsSystemGHC = configSystemGHC
+                }
     conf
-        & encodeDumpStack f cmd
+        & encodeDumpStackBy f cmd
         & decodeUtf8'
         & either throwM (logInfo . display)
 
@@ -264,7 +304,7 @@ configCmdDumpProjectParser :: OA.Parser ConfigCmdDumpProject
 configCmdDumpProjectParser = ConfigCmdDumpProject <$> getScopeFlag <*> dumpFormatFlag
 
 configCmdDumpStackParser :: OA.Parser ConfigCmdDumpStack
-configCmdDumpStackParser = ConfigCmdDumpStack <$> getScopeFlag <*> dumpFormatFlag
+configCmdDumpStackParser = ConfigCmdDumpStack <$> getDumpStackScope <*> dumpFormatFlag
 
 dumpFormatFlag :: OA.Parser ConfigDumpFormat
 dumpFormatFlag =
@@ -328,6 +368,12 @@ getScopeFlag, setScopeFlag :: OA.Parser CommandScope
 getScopeFlag = scopeFlag "From"
 setScopeFlag = scopeFlag "Modify"
 
+getDumpStackScope :: OA.Parser DumpStackScope
+getDumpStackScope = OA.option readDumpStackScope
+    $ OA.long "lens"
+    <> OA.help "Which action configuration to look at, project or global? The effective is global with project overrides."
+    <> OA.metavar "[project|global|effective]"
+
 scopeFlag :: String -> OA.Parser CommandScope
 scopeFlag action =
     OA.flag
@@ -337,13 +383,18 @@ scopeFlag action =
          OA.help
              (action <> " the global configuration (typically at \"~/.stack/config.yaml\") instead of the project stack.yaml."))
 
+readDumpStackScope :: OA.ReadM DumpStackScope
+readDumpStackScope = OA.str >>= \case
+    ("effective" :: String) -> return DumpStackScopeEffective
+    "project" -> return DumpStackScopeProject
+    "global" -> return DumpStackScopeGlobal
+    _ -> OA.readerError "Accepted scopes are 'effective', 'project' and 'global'."
+
 readBool :: OA.ReadM Bool
-readBool = do
-    s <- OA.readerAsk
-    case s of
-        "true" -> return True
-        "false" -> return False
-        _ -> OA.readerError ("Invalid value " ++ show s ++ ": Expected \"true\" or \"false\"")
+readBool = OA.readerAsk >>= \case
+    "true" -> return True
+    "false" -> return False
+    s -> OA.readerError ("Invalid value " ++ show s ++ ": Expected \"true\" or \"false\"")
 
 boolArgument :: OA.Parser Bool
 boolArgument = OA.argument readBool (OA.metavar "true|false" <> OA.completeWith ["true", "false"])
