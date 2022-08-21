@@ -164,8 +164,8 @@ cfgCmdDumpProject cmd@(ConfigCmdDumpProject _ dumpFormat) = do
 
 data DumpStack =
     DumpStack
-        { dsInstallGHC :: !Bool
-        , dsSystemGHC  :: !Bool
+        { dsInstallGHC :: !(Maybe Bool)
+        , dsSystemGHC  :: !(Maybe Bool)
         }
 
 instance ToJSON DumpStack where
@@ -189,25 +189,21 @@ cfgDumpStack scope dumpFormat = do
     case Yaml.parseEither parser yamlConfig of
         Left err -> logError . display $ T.pack err
         Right (WithJSONWarnings config _warnings) -> do
-            let systemGHC = getFirst $ configMonoidSystemGHC config
-            let installGHC = getFirstTrue $ configMonoidInstallGHC config
+            let dsSystemGHC = getFirst $ configMonoidSystemGHC config
+            let dsInstallGHC = getFirstTrue $ configMonoidInstallGHC config
             
-            case (systemGHC, installGHC) of
-                (Just s, Just i) -> do
-                    DumpStack{dsSystemGHC = s, dsInstallGHC = i}
-                        & encodeDumpStack dumpFormat
-                        & decodeUtf8'
-                        & either throwM (logInfo . display)
-
-                _ -> logError "Couldn't get configuration."
+            DumpStack{..}
+                & encodeDumpStack dumpFormat
+                & decodeUtf8'
+                & either throwM (logInfo . display)
 
 cfgCmdDumpStackEffective :: (HasConfig env, HasLogFunc env) => ConfigCmdDumpStack -> RIO env ()
 cfgCmdDumpStackEffective cmd = do
     conf <- view configL
     let f Config{..} =
             DumpStack
-                { dsInstallGHC = configInstallGHC
-                , dsSystemGHC = configSystemGHC
+                { dsInstallGHC = Just configInstallGHC
+                , dsSystemGHC = Just configSystemGHC
                 }
     conf
         & encodeDumpStackBy f cmd
