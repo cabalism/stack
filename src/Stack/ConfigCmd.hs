@@ -184,11 +184,10 @@ cfgDumpStack
     => CommandScope -> ConfigDumpFormat -> RIO env ()
 cfgDumpStack scope dumpFormat = do
     (configFilePath, yamlConfig) <- cfgRead scope
-    let parser = parseProjectAndConfigMonoid (parent configFilePath)
+    let parser = parseConfigMonoid (parent configFilePath)
     case Yaml.parseEither parser yamlConfig of
         Left err -> logError . display $ T.pack err
-        Right (WithJSONWarnings res _warnings) -> do
-            ProjectAndConfigMonoid _ config <- liftIO res
+        Right (WithJSONWarnings config _warnings) -> do
             let systemGHC = getFirst $ configMonoidSystemGHC config
             let installGHC = getFirstTrue $ configMonoidInstallGHC config
             
@@ -234,10 +233,13 @@ cfgCmdGet cmd = do
                 ConfigCmdGetInstallGhc{} ->
                     logBool (getFirstTrue $ configMonoidInstallGHC config)
 
-cfgRead :: (HasConfig s, FromJSON a) => CommandScope -> RIO s (Path Abs File, a)
-cfgRead scope = do
+-- | Configuration location for a scope. Typically:
+-- * at @~\/.stack\/config.yaml@ for global scope.
+-- * at @.\/stack.yaml@ by default or from the @--stack-yaml@ option for project scope.
+cfgLocation :: HasConfig s => CommandScope -> RIO s (Path Abs File)
+cfgLocation scope = do
     conf <- view configL
-    configFilePath <- case scope of
+    case scope of
         CommandScopeProject -> do
             mstackYamlOption <- view $ globalOptsL.to globalStackYaml
             mstackYaml <- getProjectConfig mstackYamlOption
@@ -248,6 +250,10 @@ cfgRead scope = do
                     -- REVIEW: Maybe modify the ~/.stack/config.yaml file instead?
                     throwString "config command used when no project configuration available"
         CommandScopeGlobal -> return (configUserConfigPath conf)
+
+cfgRead :: (HasConfig s, FromJSON a) => CommandScope -> RIO s (Path Abs File, a)
+cfgRead scope = do
+    configFilePath <- cfgLocation scope
 
     -- We don't need to worry about checking for a valid yaml here
     liftIO (Yaml.decodeFileEither (toFilePath configFilePath)) >>=
