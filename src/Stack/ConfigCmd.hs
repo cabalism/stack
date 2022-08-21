@@ -75,7 +75,7 @@ import           System.Environment (getEnvironment)
 data ConfigDumpFormat = ConfigDumpYaml | ConfigDumpJson
 
 -- | Dump project configuration settings.
-data ConfigCmdDumpProject = ConfigCmdDumpProject CommandScope ConfigDumpFormat
+newtype ConfigCmdDumpProject = ConfigCmdDumpProject ConfigDumpFormat
 
 -- | Dump stack's own settings. Configuration related to its own opertion. This
 -- can be defaulted or stored in a global location or project location or both,
@@ -118,9 +118,6 @@ instance Display CommandScope where
     display CommandScopeProject = "project"
     display CommandScopeGlobal = "global"
 
-configCmdDumpProjectScope :: ConfigCmdDumpProject -> CommandScope
-configCmdDumpProjectScope (ConfigCmdDumpProject scope _) = scope
-
 configCmdGetScope :: ConfigCmdGet -> CommandScope
 configCmdGetScope ConfigCmdGetResolver = CommandScopeProject
 configCmdGetScope (ConfigCmdGetSystemGhc scope) = scope
@@ -156,8 +153,8 @@ cfgReadProject scope = do
             return $ Just project
 
 cfgCmdDumpProject :: (HasConfig env, HasLogFunc env) => ConfigCmdDumpProject -> RIO env ()
-cfgCmdDumpProject cmd@(ConfigCmdDumpProject _ dumpFormat) = do
-    project <- cfgReadProject (configCmdDumpProjectScope cmd)
+cfgCmdDumpProject (ConfigCmdDumpProject dumpFormat) = do
+    project <- cfgReadProject CommandScopeProject
     project & maybe (logError "Couldn't find project") (\p ->
         encodeDumpProject dumpFormat p
         & decodeUtf8'
@@ -304,7 +301,7 @@ cfgCmdSetName = "set"
 cfgCmdEnvName = "env"
 
 configCmdDumpProjectParser :: OA.Parser ConfigCmdDumpProject
-configCmdDumpProjectParser = ConfigCmdDumpProject <$> getScopeFlag <*> dumpFormatFlag
+configCmdDumpProjectParser = ConfigCmdDumpProject <$> dumpFormatFlag
 
 configCmdDumpStackParser :: OA.Parser ConfigCmdDumpStack
 configCmdDumpStackParser = ConfigCmdDumpStack <$> getDumpStackScope <*> dumpFormatFlag
