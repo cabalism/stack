@@ -77,8 +77,9 @@ data ConfigDumpFormat = ConfigDumpYaml | ConfigDumpJson
 -- | Dump project configuration settings.
 data ConfigCmdDumpProject = ConfigCmdDumpProject CommandScope ConfigDumpFormat
 
--- | Dump configuration around the opertion of stack and get these from either
--- the the global location, from @stack.yaml@ or from @~/.stack/config.yaml@.
+-- | Dump stack's own settings. Configuration related to its own opertion. This
+-- can be defaulted or stored in a global location or project location or both,
+-- in @~\/.stack\/config.yaml@ or @stack.yaml@.
 data ConfigCmdDumpStack = ConfigCmdDumpStack DumpStackScope ConfigDumpFormat
 
 -- | Get configuration items that can be individually set by `stack config set`.
@@ -98,7 +99,7 @@ data ConfigCmdSet
 data CommandScope
     = CommandScopeGlobal
       -- ^ Apply changes to or get settings from the global configuration,
-      -- typically at @~/.stack/config.yaml@.
+      -- typically at @~\/.stack\/config.yaml@.
     | CommandScopeProject
       -- ^ Apply changes to or get settings from the project @stack.yaml@.
 
@@ -108,7 +109,7 @@ data DumpStackScope
       -- ^ The effective scope.
     | DumpStackScopeGlobal
       -- ^ Apply changes to or get settings from the global configuration,
-      -- typically at @~/.stack/config.yaml@.
+      -- typically at @~\/.stack\/config.yaml@.
     | DumpStackScopeProject
       -- ^ Apply changes to or get settings from the project @stack.yaml@.
 
@@ -200,8 +201,7 @@ cfgDumpStack scope dumpFormat = do
 
                 _ -> logError "Couldn't get configuration."
 
-cfgCmdDumpStackEffective
-    :: (HasConfig env, HasLogFunc env) => ConfigCmdDumpStack -> RIO env ()
+cfgCmdDumpStackEffective :: (HasConfig env, HasLogFunc env) => ConfigCmdDumpStack -> RIO env ()
 cfgCmdDumpStackEffective cmd = do
     conf <- view configL
     let f Config{..} =
@@ -377,7 +377,7 @@ setScopeFlag = scopeFlag "Modify"
 getDumpStackScope :: OA.Parser DumpStackScope
 getDumpStackScope = OA.option readDumpStackScope
     $ OA.long "lens"
-    <> OA.help "Which action configuration to look at, project or global? The effective is global with project overrides."
+    <> OA.help "Which configuration to look at, project or global or effective (global with project overrides)."
     <> OA.metavar "[project|global|effective]"
 
 scopeFlag :: String -> OA.Parser CommandScope
