@@ -88,8 +88,8 @@ data ConfigCmdGet
     | ConfigCmdGetSystemGhc CommandScope
     | ConfigCmdGetInstallGhc CommandScope
 
--- | Set the resolver for the project or set configuration aronud GHC at project
--- or global scope.
+-- | Set the resolver for the project or set compiler-related configuration at
+-- project or global scope.
 data ConfigCmdSet
     = ConfigCmdSetResolver (Unresolved AbstractResolver)
     | ConfigCmdSetSystemGhc CommandScope Bool
