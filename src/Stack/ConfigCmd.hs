@@ -106,7 +106,8 @@ data CommandScope
 -- | Where to get the configuration settings from.
 data DumpStackScope
     = DumpStackScopeEffective
-      -- ^ The effective scope.
+      -- ^ A view of settings where those settings in the project but related to
+      -- stack's own operation override settings in the global location.
     | DumpStackScopeGlobal
       -- ^ Apply changes to or get settings from the global configuration,
       -- typically at @~\/.stack\/config.yaml@.
