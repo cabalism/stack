@@ -164,6 +164,8 @@ data Package = Package
     -- the hard-coded lookup.
   , packageAllDeps :: !(Set PackageName)
     -- ^ Original dependencies (not sieved).
+  -- FIXME: Having `packageDeps`, `packageAllDeps`, and `packageSubLibDeps` seem redundant.
+  ,packageSubLibDeps :: !(Set Text) -- ^ Original sub-library dependencies (not sieved).
   , packageGhcOptions :: ![Text]
     -- ^ Ghc options used on package.
   , packageCabalConfigOpts :: ![Text]

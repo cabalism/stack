@@ -1,7 +1,12 @@
-{-# LANGUAGE NoImplicitPrelude   #-}
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Dealing with Cabal.
 
@@ -24,6 +29,7 @@ import           Data.List ( unzip )
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Distribution.Compat.NonEmptySet as NES
 import           Distribution.CabalSpecVersion ( cabalSpecToVersionDigits )
 import           Distribution.Compiler
                    ( CompilerFlavor (..), PerCompilerFlavor (..) )
@@ -47,6 +53,7 @@ import qualified Distribution.Types.CondTree as Cabal
 import qualified Distribution.Types.ExeDependency as Cabal
 import qualified Distribution.Types.LegacyExeDependency as Cabal
 import           Distribution.Types.MungedPackageName ( MungedPackageName (..) )
+import           Distribution.Types.PackageName ( unPackageName )
 import qualified Distribution.Types.UnqualComponentName as Cabal
 import           Distribution.Utils.Path ( getSymbolicPath )
 import           Distribution.Verbosity ( silent )
@@ -128,6 +135,7 @@ packageFromPackageDescription packageConfig pkgFlags (PackageDescriptionPair pkg
   , packageDefaultFlags = M.fromList
     [(flagName flag, flagDefault flag) | flag <- pkgFlags]
   , packageAllDeps = M.keysSet deps
+  , packageSubLibDeps = subLibDeps
   , packageLibraries =
       let mlib = do
             lib <- library pkg
@@ -249,6 +257,13 @@ packageFromPackageDescription packageConfig pkgFlags (PackageDescriptionPair pkg
   msetupDeps = fmap
     (M.fromList . map (depPkgName &&& depVerRange) . setupDepends)
     (setupBuildInfo pkg)
+
+  -- TODO: Should merge this calculation with deps.
+  subLibDeps = S.fromList $ concatMap
+    (\(Dependency n _ libs) -> mapMaybe (getSubLibName n) (NES.toList libs))
+    (concatMap targetBuildDepends (allBuildInfo' pkg))
+  getSubLibName pn (LSubLibName cn) = Just (T.pack (unPackageName pn <> ":" <> Cabal.unUnqualComponentName cn))
+  getSubLibName _ _ = Nothing
 
   asLibrary range = DepValue
     { dvVersionRange = range
