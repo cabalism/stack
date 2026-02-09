@@ -154,7 +154,7 @@ import System.OsString.Data.ByteString.Short
 #define STRING ShortByteString
 #define FILEPATH ShortByteString
 #endif
-#endif 
+#endif
 
 
 infixr 7  <.>, -<.>
@@ -529,7 +529,7 @@ readDriveLetter bs = case uncons2 bs of
 {- \\sharename\ -}
 readDriveShare :: STRING -> Maybe (FILEPATH, FILEPATH)
 readDriveShare bs = case unpack bs of
-  (s1:s2:xs) | isPathSeparator s1 && isPathSeparator s2 -> 
+  (s1:s2:xs) | isPathSeparator s1 && isPathSeparator s2 ->
     let (a, b) = readDriveShareName (pack xs)
     in Just (s1 `cons` (s2 `cons` a), b)
   _ -> Nothing

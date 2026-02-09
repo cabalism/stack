@@ -56,18 +56,18 @@ An example script is:
 set -eu
 
 case $HOOK_GHC_TYPE in
-	bindist)
-		# install GHC here, not printing to stdout, e.g.:
-		#   command install $HOOK_GHC_VERSION >/dev/null
-		;;
-	git)
-		>&2 echo "Hook does not support installing from source"
-		exit 1
-		;;
-	*)
-		>&2 echo "Unsupported GHC installation type: $HOOK_GHC_TYPE"
-		exit 2
-		;;
+        bindist)
+                # install GHC here, not printing to stdout, e.g.:
+                #   command install $HOOK_GHC_VERSION >/dev/null
+                ;;
+        git)
+                >&2 echo "Hook does not support installing from source"
+                exit 1
+                ;;
+        *)
+                >&2 echo "Unsupported GHC installation type: $HOOK_GHC_TYPE"
+                exit 2
+                ;;
 esac
 
 echo "location/to/ghc/executable"

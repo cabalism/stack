@@ -99,7 +99,7 @@ By default:
             you will need to quit and restart GHCi whenever a module gets
             deleted. With the flag, reloading should work fine in this case.
 
-        2.  If many of your modules have exports named the same thing, then you 
+        2.  If many of your modules have exports named the same thing, then you
             will need to refer to them using qualified names. To avoid this,
             use the `--only-main` flag to start with a blank slate and just
             import the modules you are interested in.

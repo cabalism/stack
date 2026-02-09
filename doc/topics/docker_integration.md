@@ -310,7 +310,7 @@ Since filesystem changes outside of the volume-mounted project directory are not
 persisted across runs, this means that if you
 `stack exec sudo apt-get install some-ubuntu-package`, that package will be
 installed but then the container it is installed in will disappear, thus causing
-it to have no effect. If you wish to make this kind of change permanent, see 
+it to have no effect. If you wish to make this kind of change permanent, see
 later instructions for how to create a
 [derivative Docker image](#derivative-image).
 

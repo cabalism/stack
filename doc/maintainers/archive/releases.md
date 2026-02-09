@@ -112,17 +112,17 @@ Now continue to the **General Windows setup** subsection below.
       This makes the disk twice as large, which helps avoid running out of disk
       space.
 5. In the ESXi web UI:
-	- Create a new VM
-		- Give is 8192 MB of memory
-		- Give it 4 virtual CPUs
-		- Remove the default hard disk
-		- Add an **Existing hard disk**
-			- Select `/datastore1/win10-msedge/MSEdge-Win10-VMWare-disk1.vmdk`
-	- Power on the VM
-	- In Windows settings:
-		- Search for "disk management"
-			- Extend the partition to take the whole disk.
-		- In all likelihood, you will want to search for "remote desktop" and enable
+        - Create a new VM
+                - Give is 8192 MB of memory
+                - Give it 4 virtual CPUs
+                - Remove the default hard disk
+                - Add an **Existing hard disk**
+                        - Select `/datastore1/win10-msedge/MSEdge-Win10-VMWare-disk1.vmdk`
+        - Power on the VM
+        - In Windows settings:
+                - Search for "disk management"
+                        - Extend the partition to take the whole disk.
+                - In all likelihood, you will want to search for "remote desktop" and enable
       remote desktop. Then you can connect to the VM using Microsoft Remote
       Desktop instead of using it from within the ESXi web UI.
 
