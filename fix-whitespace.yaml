@@ -32,6 +32,7 @@ excluded-dirs:
   - doc/.venv
   - .stack-work
   - .vscode
+  - _site
 
 # Every matched filename is included unless it is matched by excluded-files.
 included-files:
