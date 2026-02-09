@@ -1,6 +1,26 @@
 # HLint configuration file
 # https://github.com/ndmitchell/hlint
 
+# Warnings currently triggered by your code
+- ignore: {name: "Avoid lambda"} # 1 hint
+- ignore: {name: "Avoid restricted extensions"} # 59 hints
+- ignore: {name: "Move brackets to avoid $"} # 1 hint
+- ignore: {name: "Redundant $"} # 2 hints
+- ignore: {name: "Redundant =="} # 128 hints
+- ignore: {name: "Redundant bracket"} # 841 hints
+- ignore: {name: "Redundant lambda"} # 2 hints
+- ignore: {name: "Redundant multi-way if"} # 5 hints
+- ignore: {name: "Unused LANGUAGE pragma"} # 6 hints
+- ignore: {name: "Use ++"} # 2 hints
+- ignore: {name: "Use <$>"} # 5 hints
+- ignore: {name: "Use camelCase"} # 6 hints
+- ignore: {name: "Use infix"} # 4 hints
+- ignore: {name: "Use isNothing"} # 12 hints
+- ignore: {name: "Use list literal pattern"} # 5 hints
+- ignore: {name: "Use maybeToList"} # 1 hint
+- ignore: {name: "Use null"} # 8 hints
+- ignore: {name: "Use unless"} # 6 hints
+
 - error: {lhs: "Network.HTTP.Client.MultipartFormData.formDataBody", rhs: "Network.HTTP.StackClient.formDataBody"}
 - error: {lhs: "Network.HTTP.Client.MultipartFormData.partBS", rhs: "Network.HTTP.StackClient.partBS"}
 - error: {lhs: "Network.HTTP.Client.MultipartFormData.partFileRequestBody", rhs: "Network.HTTP.StackClient.partFileRequestBody"}
