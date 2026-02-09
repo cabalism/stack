@@ -141,3 +141,5 @@ excluded-files:
   - "*.p_o"
   - "*.png"
   - "*.so"
+
+  - .devcontainer/LICENSE
